@@ -23,14 +23,14 @@ def harmonic_potential(x, y):
     """Harmonic potential V(x, y) = 0.5 * (x^2 + y^2) as lambda function."""
     return (x - 0.5)**2 + (y - 0.5)**2
 
-def build_potential_matrix(N):
+def build_potential_matrix(N, potential=harmonic_potential):
     h = 1.0 / (N + 1)
     x_list = np.linspace(h, 1 - h, N)
     X, Y = np.meshgrid(x_list, x_list, indexing='ij') 
     
-    V_values = harmonic_potential(X, Y).reshape(N * N) 
-    potential = np.diag(V_values)  # Diagonalmatrix mit V auf der Diagonalen
-    return potential
+    V_values = potential(X, Y).reshape(N * N) 
+    potential_matrix = np.diag(V_values)  # Diagonalmatrix mit V auf der Diagonalen
+    return potential_matrix
 
 def system_matrix(N):
     """Construct the system matrix for the Schrödinger equation."""
@@ -44,27 +44,24 @@ def shifted_inverse_power_method(A, mu, solver=np.linalg.solve, tol=1e-6, max_it
     solver: Funktion, die (Matrix, Vektor) nimmt und Lösung zurückgibt.
     """
     n = A.shape[0]
-    x = np.random.rand(n)
-    x /= np.linalg.norm(x)
+    x = np.ones(n) # Change initial guess (random?)
 
     M = A - mu * np.eye(n)
     for _ in range(max_iter):
         y = solver(M, x)
-        y /= np.linalg.norm(y)
-
         if np.linalg.norm(x - y) < tol:
             break
         x = y
 
-    eigenvalue = np.dot(x, A @ x) / np.dot(x, x)
-    return x, eigenvalue
+    lambda_x = np.dot(x, A @ x) / np.dot(x, x)
+    return x, lambda_x
 
 
 def cg(A,b):
     return 0
 
 if __name__ == "__main__":
-    N = 3
+    N = 25
     # u = np.arange(N * N).reshape(N, N)
     u = np.ones((N, N))  # Using a simple constant function for demonstration
     print("u (2D grid):")
@@ -93,10 +90,30 @@ if __name__ == "__main__":
     print("\nSystem matrix A:")
     print(A)
 
-    v, lambda_v = shifted_inverse_power_method(A, mu=0)
+    v, lambda_v = shifted_inverse_power_method(A, mu=100)
     print("\nEigenvector v closest to mu=1:")
     print(v)
     print("\nEigenvalue lambda_v closest to mu=1:")
     print(lambda_v)
+
+    # Plot the eigenvector over the grid
+    h = 1.0 / (N + 1)
+    x_list = np.linspace(h, 1 - h, N)
+    X, Y = np.meshgrid(x_list, x_list, indexing='ij')
+    plt.figure(figsize=(8, 6))
+    plt.pcolormesh(X, Y, v.reshape(N, N), shading='auto', cmap='viridis')
+    plt.colorbar(label='Eigenvector value')
+    plt.title('Eigenvector closest to mu')
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.show()
+    # Plot the potential
+    plt.figure(figsize=(8, 6)) 
+    plt.pcolormesh(X, Y, harmonic_potential(X, Y).reshape(N, N), shading='auto', cmap='plasma')
+    plt.colorbar(label='Potential V(x, y)')
+    plt.title('Harmonic Potential V(x, y)')
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.show()
 
 
