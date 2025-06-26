@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+
 # TODO: use convolve / maybe even FFT for operator
 def laplace(u_flat):
     """Compute the discrete Laplacian of a 2D grid."""
@@ -112,42 +113,25 @@ def cg(operator, b, tol=1e-10, max_iter=1000):
 
     return x
 
-if __name__ == "__main__":
-    N = 100
+def dimile_old():
+    N = 25
     # u = np.arange(N * N).reshape(N, N)
     u = np.ones((N, N))  # Using a simple constant function for demonstration
     # print("u (2D grid):")
     # print(u)
 
     u_flat = u.reshape(N * N)
-    # print("\nu flattened:")
-    # print(u_flat)
-    L = build_laplacian_matrix(N)
+    
+    sigma = 8
 
-    # print("\nLaplacian matrix A:")
-    # print(L)
+    potential_operator = lambda u: multiply_potential(u, harmonic_potential)
+    summed_operator = lambda u: potential_operator(u) - 0.5 * laplace(u)
 
-    # Apply the Laplacian
-    Lu = L @ u_flat
-    # print("\nA @ u (discrete Laplacian applied):")
-    # print(Lu.reshape(N, N))
-
-    # Test potential matrix
-    V = build_potential_matrix(N)
-    # print("\nPotential matrix V:") 
-    # print(V)
-
-    # Construct the system matrix
-    A = system_matrix(N)
-    # print("\nSystem matrix A:")
-    # print(A)
-
-    mu = 0
-    v, lambda_v = shifted_inverse_power_method(A, mu)
+    v, lambda_v = shifted_inverse_power_method(summed_operator, sigma, cg, N)
     # print(f"\nEigenvector v closest to mu={mu}:")
     # print(v)
-    # print(f"\nEigenvalue lambda_v closest to mu={mu}:")
-    # print(lambda_v)
+    print(f"\nEigenvalue lambda_v closest to sigma={sigma}:")
+    print(lambda_v)
 
     # Plot the eigenvector over the grid
     h = 1.0 / (N + 1)
@@ -159,7 +143,7 @@ if __name__ == "__main__":
     plt.title('Eigenvector closest to mu')
     plt.xlabel('x')
     plt.ylabel('y')
-    # plt.show()
+    plt.show()
     # Plot the potential
     plt.figure(figsize=(8, 6)) 
     plt.pcolormesh(X, Y, harmonic_potential(X, Y).reshape(N, N), shading='auto', cmap='plasma')
@@ -167,6 +151,10 @@ if __name__ == "__main__":
     plt.title('Harmonic Potential V(x, y)')
     plt.xlabel('x')
     plt.ylabel('y')
-    # plt.show()
+    plt.show()
 
+def test_cg():
+    pass
 
+if __name__ == "__main__":
+    dimile_old()
