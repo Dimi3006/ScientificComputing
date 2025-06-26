@@ -88,8 +88,29 @@ def shifted_inverse_power_method(operator, sigma, solver, N, tol=1e-6, max_iter=
     return x, lambda_x
 
 
-def cg(A,b):
-    return 0
+def cg(operator, b, tol=1e-10, max_iter=1000):
+    """Conjugate Gradient method to solve Ax = b for a linear operator A.
+        operator: Function that applies the linear operator A to a vector.
+        b: Right-hand side vector.
+    """
+    x = np.zeros_like(b)
+    r = b - operator(x)
+    p = r.copy()
+    alpha_old = np.dot(r, r)
+
+    # TODO: include max_iter
+    for _ in range(b.shape[0]):
+        Ap = operator(p)
+        lambd = alpha_old / np.dot(p, Ap)
+        x += lambd * p
+        r -= lambd * Ap
+        alpha_new = np.dot(r, r)
+        if alpha_new < tol:
+            break
+        p = r + (alpha_new / alpha_old) * p
+        alpha_old = alpha_new
+
+    return x
 
 if __name__ == "__main__":
     N = 100
