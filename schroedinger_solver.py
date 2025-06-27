@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 
 # TODO: use convolve / maybe even FFT for operator
 def laplace(u_flat):
-    """Compute the discrete Laplacian of a 2D grid."""
     N = int(np.sqrt(u_flat.shape[0]))
     h = 1.0 / (N + 1)
     laplacian_u = np.zeros_like(u_flat)
