@@ -259,20 +259,37 @@ def split_matrix(A):
     U = sp.triu(A, k=1, format='csr')         # Strictly upper triangular part (zero diagonal)
     return L, U, D
     
-def jacobi_preconditioner(D):
+def jacobi_preconditioner(A):
     """Jacobi preconditioner for the system matrix."""
     # D is the diagonal part of the matrix A
-    def preconditioner(r):
-        z= sp.linalg.spsolve(D, r)  # Solve D * z = r
-        return z
-    return preconditioner
+    D = A.diagonal()
+    if np.any(D == 0):
+        raise ValueError("Jacobi preconditioner: zero on diagonal.")
+
+    def precondition(r):
+        return r / D
+    return precondition
 
 def sgs_preconditioner(L, U, D):
     """Symmetric Gauss-Seidel preconditioner for the system matrix."""
+    LD = (L + D).tocsr()
+    UD = (U + D).tocsr()
     def preconditioner(r):
-        z3 = sp.linalg.spsolve_triangular((L + D).tocsr(), r, lower=True)
+        z3 = sp.linalg.spsolve_triangular(LD, r, lower=True, unit_diagonal=False)
         z2 = D @ z3
-        z = sp.linalg.spsolve_triangular((U + D).tocsr(), z2, lower=False)
+        z = sp.linalg.spsolve_triangular(UD, z2, lower=False, unit_diagonal=False)
+        return z
+    return preconditioner
+
+def ssor_preconditioner(L, D, U, omega=1.0):
+    """Symmetric Successive Over-Relaxation (SSOR) preconditioner for the system matrix."""
+    LD = (L + D / omega).tocsr()
+    UD = (U + D / omega).tocsr()
+    
+    def preconditioner(r):
+        z3 = sp.linalg.spsolve_triangular(1/(2-omega)*LD, r, lower=True, unit_diagonal=False)
+        z2 = (D/omega) @ z3
+        z = sp.linalg.spsolve_triangular(UD, z2, lower=False, unit_diagonal=False)
         return z
     return preconditioner
 
@@ -317,7 +334,7 @@ def dimile_old():
     plt.show()
 
 def dimile_new():
-    N = 200
+    N = 64
     # u = np.arange(N * N).reshape(N, N)
     u = np.ones((N, N))  # Using a simple constant function for demonstration
     # print("u (2D grid):")
@@ -340,9 +357,10 @@ def dimile_new():
     # print(D.toarray())
     # print('L + U + D')
     # print((L+U+D).toarray())
-
+    omega = 1.8
+    v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, ssor_preconditioner(L, D, U, omega))
     # v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, sgs_preconditioner(L, U, D))
-    v, lambda_v = shifted_inverse_power_method(A, sigma, cg, jacobi_preconditioner(D))
+    # v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, jacobi_preconditioner(A))
     # print(f"\nEigenvector v closest to mu={mu}:")
     # print(v)
     print(f"\nEigenvalue lambda_v closest to sigma={sigma}:")
