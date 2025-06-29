@@ -128,7 +128,7 @@ def sparse_system_matrix(N, potential=harmonic_potential):
 #     lambda_x = np.dot(x, operator(x)) / np.dot(x, x)
 #     return x, lambda_x
 
-def shifted_inverse_power_method(A, sigma, solver, precond=None, tol=1e-6, max_iter=1000):
+def shifted_inverse_power_method(A, sigma, solver, precond=None, tol=1e-8, max_iter=1000):
     """
     Shifted inverse power method to find eigenvector for eigenvalue closest to mu.
     """
@@ -173,7 +173,7 @@ def shifted_inverse_power_method(A, sigma, solver, precond=None, tol=1e-6, max_i
 
 #     return x
 
-def cg(A, b, precond=None, tol=1e-10, max_iter=1000):
+def cg(A, b, precond=None, tol=1e-8, max_iter=1000):
     """Conjugate Gradient method to solve Ax = b for a linear operator A.
         operator: Function that applies the linear operator A to a vector.
         b: Right-hand side vector.
@@ -225,7 +225,7 @@ def cg(A, b, precond=None, tol=1e-10, max_iter=1000):
 
 #     return x
 
-def pcg(A, b, preconditioner, tol=1e-10, max_iter=1000):
+def pcg(A, b, preconditioner, tol=1e-8, max_iter=1000):
     """Preconditioned Conjugate Gradient method to solve Ax = b for a linear operator A.
         operator: Function that applies the linear operator A to a vector.
         b: Right-hand side vector.
@@ -236,12 +236,13 @@ def pcg(A, b, preconditioner, tol=1e-10, max_iter=1000):
     p = z.copy()
     rz_old = np.dot(r, z)
     iterations = 0
-
+    res = [np.linalg.norm(r)]
     for _ in range(max_iter):
         Ap = A @ p
         alpha = rz_old / np.dot(p, Ap)
         x += alpha * p
         r -= alpha * Ap
+        res.append(np.linalg.norm(r))
         if np.linalg.norm(r) < tol:
             break
         z = preconditioner(r)
@@ -251,6 +252,14 @@ def pcg(A, b, preconditioner, tol=1e-10, max_iter=1000):
         rz_old = rz_new
         iterations += 1
     print(f"PCG iterations: {iterations}")
+    plt.plot(res)
+    plt.yscale('log')
+    plt.xlabel('Iteration')
+    plt.ylabel('Residual Norm')
+    plt.title('Convergence of PCG Method')
+    plt.grid()
+    plt.show()
+    exit()
     return x
 
 # Return A, L, U matrices for the sparse matrix A
@@ -404,7 +413,7 @@ def dimile_new():
     omega = 1.8
     v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, ssor_preconditioner(L, D, U, omega))
     # v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, sgs_preconditioner(L, U, D))
-    # v, lambda_v = shifted_inverse_power_method(A, sigma, cg, jacobi_preconditioner(A))
+    # v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, jacobi_preconditioner(A))
     # print(f"\nEigenvector v closest to mu={mu}:")
     # print(v)
     print(f"\nEigenvalue lambda_v closest to sigma={sigma}:")
