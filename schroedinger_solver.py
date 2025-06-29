@@ -31,24 +31,24 @@ def multiply_potential(u_flat, potential):
     V_values = potential(X, Y).reshape(N * N)  # Flatten the potential matrix
     return u_flat * V_values  # Element-wise multiplication
 
-# def build_laplacian_matrix(N):
-    # h = 1.0 / (N + 1)
+def build_laplacian_matrix(N):
+    h = 1.0 / (N + 1)
     
-    # # 1D Laplacian matrix
-    # laplacian_1d = np.zeros((N, N))
-    # for i in range(N):
-    #     if i > 0:
-    #         laplacian_1d[i, i - 1] = 1
-    #     laplacian_1d[i, i] = -2
-    #     if i < N - 1:
-    #         laplacian_1d[i, i + 1] = 1
-    # print(laplacian_1d.shape)
-    # identity = np.eye(N)
+    # 1D Laplacian matrix
+    laplacian_1d = np.zeros((N, N))
+    for i in range(N):
+        if i > 0:
+            laplacian_1d[i, i - 1] = 1
+        laplacian_1d[i, i] = -2
+        if i < N - 1:
+            laplacian_1d[i, i + 1] = 1
+    print(laplacian_1d.shape)
+    identity = np.eye(N)
     
-    # # 2D Laplacian via Kronecker sum
-    # laplacian_2d = np.kron(identity, laplacian_1d) + np.kron(laplacian_1d, identity)
-    # print(laplacian_2d.shape)
-    # return laplacian_2d/h**2
+    # 2D Laplacian via Kronecker sum
+    laplacian_2d = np.kron(identity, laplacian_1d) + np.kron(laplacian_1d, identity)
+    print(laplacian_2d.shape)
+    return laplacian_2d/h**2
 
 def harmonic_potential(x, y):
     """Harmonic potential V(x, y) = 0.5 * (x^2 + y^2) as lambda function."""
@@ -112,6 +112,33 @@ def cg(operator, b, tol=1e-10, max_iter=1000):
 
     return x
 
+def pcg(operator, b, preconditioner, tol=1e-10, max_iter=1000):
+    """Preconditioned Conjugate Gradient method to solve Ax = b for a linear operator A.
+        operator: Function that applies the linear operator A to a vector.
+        b: Right-hand side vector.
+    """
+    x = np.zeros_like(b)
+    r = b - operator(x)
+    z = preconditioner(r)
+    p = z.copy()
+    rz_old = np.dot(r, z)
+
+    for _ in range(max_iter):
+        Ap = operator(p)
+        alpha = rz_old / np.dot(p, Ap)
+        x += alpha * p
+        r -= alpha * Ap
+        if np.linalg.norm(r) < tol:
+            break
+        z = preconditioner(r)
+        rz_new = np.dot(r, z)
+        beta = rz_new / rz_old
+        p = z + beta * p
+        rz_old = rz_new
+
+    return x
+
+
 def dimile_old():
     N = 25
     # u = np.arange(N * N).reshape(N, N)
@@ -156,4 +183,7 @@ def test_cg():
     pass
 
 if __name__ == "__main__":
+    A = build_laplacian_matrix(3)
+    print("Laplacian matrix A:")    
+    print(A)
     dimile_old()
