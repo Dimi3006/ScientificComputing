@@ -103,11 +103,12 @@ def system_matrix(N):
     V = build_potential_matrix(N)
     return -0.5*A + V
 
-def sparse_system_matrix(N):
+def sparse_system_matrix(N, potential=harmonic_potential):
     """Construct the sparse system matrix for the Schrödinger equation."""
-    A = sparse_laplacian_matrix(N)
-    V = sparse_potential_matrix(N)
-    return -0.5 * A + V  # Sparse matrix with -0.5 * Laplacian + Potential on the diagonal
+    L = sparse_laplacian_matrix(N)
+    V = sparse_potential_matrix(N, potential)
+    A = (-0.5 * L + V).tocsr()  # Sparse matrix with -0.5 * Laplacian + Potential on the diagonal
+    return A
 
 # def shifted_inverse_power_method(operator, sigma, solver, N, tol=1e-6, max_iter=1000):
 #     """
@@ -132,17 +133,18 @@ def shifted_inverse_power_method(A, sigma, solver, precond=None, tol=1e-6, max_i
     Shifted inverse power method to find eigenvector for eigenvalue closest to mu.
     """
     N = int(np.sqrt(A.shape[0]))
-    x = np.ones(N**2) # Change initial guess (random?)
+    x = np.ones(N**2)
+    x = x / np.linalg.norm(x)
 
     shifted_matrix = A - sigma * sp.eye(N**2, format='csr')
-    # print(shifted_matrix.toarray())
     
     for _ in range(max_iter):
         y = solver(shifted_matrix, x, precond)
+        y = y / np.linalg.norm(y)
         if np.linalg.norm(x - y) < tol:
             break
         x = y
-    
+
     lambda_x = np.dot(x, A @ x) / np.dot(x, x)
     return x, lambda_x
 
@@ -270,14 +272,38 @@ def jacobi_preconditioner(A):
         return r / D
     return precondition
 
+# def sgs_preconditioner(L, U, D):
+#     """Symmetric Gauss-Seidel preconditioner for the system matrix."""
+#     LD = (L + D).tocsr()
+#     UD = (U + D).tocsr()
+#     def preconditioner(r):
+#         z3 = sp.linalg.spsolve_triangular(LD, r, lower=True, unit_diagonal=False)
+#         z2 = D @ z3
+#         z = sp.linalg.spsolve_triangular(UD, z2, lower=False, unit_diagonal=False)
+#         return z
+#     return preconditioner
+
+# def ssor_preconditioner(L, D, U, omega=1.0):
+#     """Symmetric Successive Over-Relaxation (SSOR) preconditioner for the system matrix."""
+#     LD = (L + D / omega).tocsr()
+#     UD = (U + D / omega).tocsr()
+    
+#     def preconditioner(r):
+#         z3 = sp.linalg.spsolve_triangular(1/(2-omega)*LD, r, lower=True, unit_diagonal=False)
+#         z2 = (D/omega) @ z3
+#         z = sp.linalg.spsolve_triangular(UD, z2, lower=False, unit_diagonal=False)
+#         return z
+#     return preconditioner
+
 def sgs_preconditioner(L, U, D):
     """Symmetric Gauss-Seidel preconditioner for the system matrix."""
     LD = (L + D).tocsr()
     UD = (U + D).tocsr()
     def preconditioner(r):
-        z3 = sp.linalg.spsolve_triangular(LD, r, lower=True, unit_diagonal=False)
+        # Use spsolve instead of spsolve_triangular for possible speedup
+        z3 = sp.linalg.spsolve(LD, r)
         z2 = D @ z3
-        z = sp.linalg.spsolve_triangular(UD, z2, lower=False, unit_diagonal=False)
+        z = sp.linalg.spsolve(UD, z2)
         return z
     return preconditioner
 
@@ -287,11 +313,29 @@ def ssor_preconditioner(L, D, U, omega=1.0):
     UD = (U + D / omega).tocsr()
     
     def preconditioner(r):
-        z3 = sp.linalg.spsolve_triangular(1/(2-omega)*LD, r, lower=True, unit_diagonal=False)
+        # Use spsolve instead of spsolve_triangular for possible speedup
+        z3 = sp.linalg.spsolve((1/(2-omega))*LD, r)
         z2 = (D/omega) @ z3
-        z = sp.linalg.spsolve_triangular(UD, z2, lower=False, unit_diagonal=False)
+        z = sp.linalg.spsolve(UD, z2)
         return z
     return preconditioner
+
+def analytical_laplacian_eigenvalue(p, q, N):
+    """
+    Compute the eigenvalue λ_{p,q} of the 2D Laplacian with Dirichlet boundary conditions.
+
+    Parameters:
+        p, q : int
+            Mode indices (1-based, from 1 to N)
+        N : int
+            Grid size
+
+    Returns:
+        float
+            Eigenvalue λ_{p,q}
+    """
+    h = 1.0 / (N + 1)
+    return -(1 / h**2) * (np.cos(p * np.pi * h) + np.cos(q * np.pi * h) - 2)
 
 def dimile_old():
     N =40
@@ -345,7 +389,7 @@ def dimile_new():
     sigma = 0
     # potential_operator = lambda u: multiply_potential(u, harmonic_potential)
     # summed_operator = lambda u: potential_operator(u) - 0.5 * laplace(u)
-    A = sparse_system_matrix(N)
+    A = sparse_system_matrix(N, potential=lambda x,y: 0*x*y)
     L, U, D = split_matrix(A)
     # print('A')
     # print(A.toarray())
@@ -360,11 +404,12 @@ def dimile_new():
     omega = 1.8
     v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, ssor_preconditioner(L, D, U, omega))
     # v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, sgs_preconditioner(L, U, D))
-    # v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, jacobi_preconditioner(A))
+    # v, lambda_v = shifted_inverse_power_method(A, sigma, cg, jacobi_preconditioner(A))
     # print(f"\nEigenvector v closest to mu={mu}:")
     # print(v)
     print(f"\nEigenvalue lambda_v closest to sigma={sigma}:")
     print(lambda_v)
+    print(f"Analytical eigenvalue: {analytical_laplacian_eigenvalue(1, 1, N)}")
 
     # Plot the eigenvector over the grid
     h = 1.0 / (N + 1)
