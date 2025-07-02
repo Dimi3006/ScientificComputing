@@ -2,7 +2,55 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy.sparse as sp
 import time
-from scipy.sparse.linalg import spilu
+
+
+# TODO: use convolve / maybe even FFT for operator
+def laplace(u_flat):
+    N = int(np.sqrt(u_flat.shape[0]))
+    h = 1.0 / (N + 1)
+    laplacian_u = np.zeros_like(u_flat)
+
+    for i in range(N):
+        for j in range(N):
+            idx = i * N + j
+            laplacian_u[idx] = (
+                -4 * u_flat[idx] +
+                (u_flat[idx - 1] if j > 0 else 0) +  # left neighbor
+                (u_flat[idx + 1] if j < N - 1 else 0) +  # right neighbor
+                (u_flat[idx - N] if i > 0 else 0) +  # upper neighbor
+                (u_flat[idx + N] if i < N - 1 else 0)  # lower neighbor
+            ) / h**2
+
+    return laplacian_u
+
+def multiply_potential(u_flat, potential):
+    """Multiply the potential function with the flattened grid."""
+    N = int(np.sqrt(u_flat.shape[0]))
+    h = 1.0 / (N + 1)
+    x_list = np.linspace(h, 1 - h, N)
+    X, Y = np.meshgrid(x_list, x_list, indexing='ij')
+    
+    V_values = potential(X, Y).reshape(N * N)  # Flatten the potential matrix
+    return u_flat * V_values  # Element-wise multiplication
+
+def build_laplacian_matrix(N):
+    h = 1.0 / (N + 1)
+    
+    # 1D Laplacian matrix
+    laplacian_1d = np.zeros((N, N))
+    for i in range(N):
+        if i > 0:
+            laplacian_1d[i, i - 1] = 1
+        laplacian_1d[i, i] = -2
+        if i < N - 1:
+            laplacian_1d[i, i + 1] = 1
+    print(laplacian_1d.shape)
+    identity = np.eye(N)
+    
+    # 2D Laplacian via Kronecker sum
+    laplacian_2d = np.kron(identity, laplacian_1d) + np.kron(laplacian_1d, identity)
+    print(laplacian_2d.shape)
+    return laplacian_2d/h**2
 
 def sparse_laplacian_matrix(N):
     """Construct a sparse Laplacian matrix for a 2D grid (Dirichlet boundary)."""
@@ -31,6 +79,15 @@ def harmonic_potential(x, y):
     """Harmonic potential V(x, y) = 0.5 * (x^2 + y^2) as lambda function."""
     return (x - 0.5)**2 + (y - 0.5)**2
 
+def build_potential_matrix(N, potential=harmonic_potential):
+    h = 1.0 / (N + 1)
+    x_list = np.linspace(h, 1 - h, N)
+    X, Y = np.meshgrid(x_list, x_list, indexing='ij') 
+    
+    V_values = potential(X, Y).reshape(N * N) 
+    potential_matrix = np.diag(V_values)  # Diagonalmatrix mit V auf der Diagonalen
+    return potential_matrix
+
 def sparse_potential_matrix(N, potential=harmonic_potential):
     """Construct a sparse potential matrix for the 2D grid."""
     h = 1.0 / (N + 1)
@@ -40,12 +97,36 @@ def sparse_potential_matrix(N, potential=harmonic_potential):
     V_values = potential(X, Y).reshape(N * N)
     return sp.diags(V_values, format='csr')  # Diagonal matrix with V on the diagonal
 
+def system_matrix(N):
+    """Construct the system matrix for the Schrödinger equation."""
+    A = build_laplacian_matrix(N)
+    V = build_potential_matrix(N)
+    return -0.5*A + V
+
 def sparse_system_matrix(N, potential=harmonic_potential):
     """Construct the sparse system matrix for the Schrödinger equation."""
     L = sparse_laplacian_matrix(N)
     V = sparse_potential_matrix(N, potential)
     A = (-0.5 * L + V).tocsr()  # Sparse matrix with -0.5 * Laplacian + Potential on the diagonal
     return A
+
+# def shifted_inverse_power_method(operator, sigma, solver, N, tol=1e-6, max_iter=1000):
+#     """
+#     Shifted inverse power method to find eigenvector for eigenvalue closest to mu.
+#     solver: Funktion, die (Matrix, Vektor) nimmt und Lösung zurückgibt.
+#     """
+#     x = np.ones(N**2) # Change initial guess (random?)
+
+#     sigma_operator = lambda u: operator(u) - sigma * u
+    
+#     for _ in range(max_iter):
+#         y = solver(sigma_operator, x)
+#         if np.linalg.norm(x - y) < tol:
+#             break
+#         x = y
+
+#     lambda_x = np.dot(x, operator(x)) / np.dot(x, x)
+#     return x, lambda_x
 
 def shifted_inverse_power_method(A, sigma, solver, precond=None, tol=1e-8, max_iter=1000):
     """
@@ -67,6 +148,31 @@ def shifted_inverse_power_method(A, sigma, solver, precond=None, tol=1e-8, max_i
     lambda_x = np.dot(x, A @ x) / np.dot(x, x)
     return x, lambda_x
 
+
+# def cg(operator, b, tol=1e-10, max_iter=1000):
+#     """Conjugate Gradient method to solve Ax = b for a linear operator A.
+#         operator: Function that applies the linear operator A to a vector.
+#         b: Right-hand side vector.
+#     """
+#     x = np.zeros_like(b)
+#     r = b - operator(x)
+#     p = r.copy()
+#     alpha_old = np.dot(r, r)
+
+#     # TODO: include max_iter
+#     for _ in range(b.shape[0]):
+#         Ap = operator(p)
+#         lambd = alpha_old / np.dot(p, Ap)
+#         x += lambd * p
+#         r -= lambd * Ap
+#         alpha_new = np.dot(r, r)
+#         if alpha_new < tol:
+#             break
+#         p = r + (alpha_new / alpha_old) * p
+#         alpha_old = alpha_new
+
+#     return x
+
 def cg(A, b, precond=None, tol=1e-8, max_iter=1000):
     """Conjugate Gradient method to solve Ax = b for a linear operator A.
         operator: Function that applies the linear operator A to a vector.
@@ -79,28 +185,45 @@ def cg(A, b, precond=None, tol=1e-8, max_iter=1000):
 
     # TODO: include max_iter
     iterations = 0
-    res = [np.linalg.norm(r)]
-    for _ in range(max_iter):
+    for _ in range(b.shape[0]):
         Ap = A @ p
         lambd = alpha_old / np.dot(p, Ap)
         x += lambd * p
         r -= lambd * Ap
-        res.append(np.linalg.norm(r))
         alpha_new = np.dot(r, r)
-        if np.sqrt(alpha_new) < tol:
+        if alpha_new < tol:
             break
         p = r + (alpha_new / alpha_old) * p
         alpha_old = alpha_new
         iterations += 1
     print(f"CG iterations: {iterations}")
-    # plt.plot(res)
-    # plt.yscale('log')
-    # plt.xlabel('Iteration')
-    # plt.ylabel('Residual Norm')
-    # plt.title('Convergence of CG Method')
-    # plt.grid()
-    # plt.show()
     return x
+
+# def pcg(operator, b, preconditioner, tol=1e-10, max_iter=1000):
+#     """Preconditioned Conjugate Gradient method to solve Ax = b for a linear operator A.
+#         operator: Function that applies the linear operator A to a vector.
+#         b: Right-hand side vector.
+#     """
+#     x = np.zeros_like(b)
+#     r = b - operator(x)
+#     z = preconditioner(r)
+#     p = z.copy()
+#     rz_old = np.dot(r, z)
+
+#     for _ in range(max_iter):
+#         Ap = operator(p)
+#         alpha = rz_old / np.dot(p, Ap)
+#         x += alpha * p
+#         r -= alpha * Ap
+#         if np.linalg.norm(r) < tol:
+#             break
+#         z = preconditioner(r)
+#         rz_new = np.dot(r, z)
+#         beta = rz_new / rz_old
+#         p = z + beta * p
+#         rz_old = rz_new
+
+#     return x
 
 def pcg(A, b, preconditioner, tol=1e-8, max_iter=1000):
     """Preconditioned Conjugate Gradient method to solve Ax = b for a linear operator A.
@@ -193,7 +316,7 @@ def sgs_preconditioner(L, U, D):
         return z
     return preconditioner
 
-def ssor_preconditioner(L, D, U, omega=1.8):
+def ssor_preconditioner(L, D, U, omega=1.0):
     """Symmetric Successive Over-Relaxation (SSOR) preconditioner for the system matrix."""
     LD = (L + D / omega).tocsr()
     UD = (U + D / omega).tocsr()
@@ -206,40 +329,23 @@ def ssor_preconditioner(L, D, U, omega=1.8):
         return z
     return preconditioner
 
-def ic0_preconditioner(A):
+def ilu0_preconditioner(A, drop_tol=1e-2, fill_factor=10):
     """
-    Incomplete Cholesky factorization with zero fill-in (IC(0)) preconditioner for symmetric positive definite sparse matrix A.
+    Incomplete LU factorization with zero fill-in (ILU(0)) preconditioner for sparse matrix A.
     Returns a function that applies the preconditioner to a vector.
     """
-    # Ensure A is in CSR format and symmetric
-    A = A.tocsr()
-    n = A.shape[0]
-    L = sp.lil_matrix((n, n))
-    for i in range(n):
-        for j in A.indices[A.indptr[i]:A.indptr[i+1]]:
-            if j > i:
-                continue  # Only fill lower triangle
-            s = A[i, j]
-            for k in range(A.indptr[i], A.indptr[i+1]):
-                col_k = A.indices[k]
-                if col_k < j:
-                    s -= L[i, col_k] * L[j, col_k]
-            if i == j:
-                if s <= 0:
-                    raise np.linalg.LinAlgError("Matrix is not positive definite for IC(0)")
-                L[i, j] = np.sqrt(s)
-            else:
-                if L[j, j] == 0:
-                    L[i, j] = 0
-                else:
-                    L[i, j] = s / L[j, j]
-    L = L.tocsr()
+    ilu = sp.linalg.spilu(A, drop_tol, fill_factor)
+    L = ilu.L
+    U = ilu.U
+    # print(L.toarray())
+    # print(U.toarray())
+    # print(A.toarray() - L.toarray() @ U.toarray())
     def precondition(r):
-        # Solve L y = r
-        y = sp.linalg.spsolve(L, r)
-        # Solve L^T x = y
-        x = sp.linalg.spsolve(L.transpose().tocsr(), y)
-        return x
+        # y = sp.linalg.spsolve(L, r)  # Solve L * y = r
+        # # Solve U * x = y
+
+        # return sp.linalg.spsolve(U, y)  # Solve U * x = y
+        return ilu.solve(r)  # Solve A * x = r using ILU preconditioner
     return precondition
 
 def analytical_laplacian_eigenvalue(p, q, N):
@@ -259,8 +365,48 @@ def analytical_laplacian_eigenvalue(p, q, N):
     h = 1.0 / (N + 1)
     return -(1 / h**2) * (np.cos(p * np.pi * h) + np.cos(q * np.pi * h) - 2)
 
+def dimile_old():
+    N =40
+    # u = np.arange(N * N).reshape(N, N)
+    u = np.ones((N, N))  # Using a simple constant function for demonstration
+    # print("u (2D grid):")
+    # print(u)
+
+    u_flat = u.reshape(N * N)
+    
+    sigma = 8
+
+    potential_operator = lambda u: multiply_potential(u, harmonic_potential)
+    summed_operator = lambda u: potential_operator(u) - 0.5 * laplace(u)
+
+    v, lambda_v = shifted_inverse_power_method(summed_operator, sigma, cg, N)
+    # print(f"\nEigenvector v closest to mu={mu}:")
+    # print(v)
+    print(f"\nEigenvalue lambda_v closest to sigma={sigma}:")
+    print(lambda_v)
+
+    # Plot the eigenvector over the grid
+    h = 1.0 / (N + 1)
+    x_list = np.linspace(h, 1 - h, N)
+    X, Y = np.meshgrid(x_list, x_list, indexing='ij')
+    plt.figure(figsize=(8, 6))
+    plt.pcolormesh(X, Y, v.reshape(N, N), shading='auto', cmap='viridis')
+    plt.colorbar(label='Eigenvector value')
+    plt.title('Eigenvector closest to mu')
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.show()
+    # Plot the potential
+    plt.figure(figsize=(8, 6)) 
+    plt.pcolormesh(X, Y, harmonic_potential(X, Y).reshape(N, N), shading='auto', cmap='plasma')
+    plt.colorbar(label='Potential V(x, y)')
+    plt.title('Harmonic Potential V(x, y)')
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.show()
+
 def dimile_new():
-    N = 64
+    N = 32
     # u = np.arange(N * N).reshape(N, N)
     u = np.ones((N, N))  # Using a simple constant function for demonstration
     # print("u (2D grid):")
@@ -271,7 +417,7 @@ def dimile_new():
     sigma = 0
     # potential_operator = lambda u: multiply_potential(u, harmonic_potential)
     # summed_operator = lambda u: potential_operator(u) - 0.5 * laplace(u)
-    A = sparse_system_matrix(N, lambda x, y: 0*x*y)
+    A = sparse_system_matrix(N, potential=lambda x,y: 0*x*y)
     L, U, D = split_matrix(A)
     # print('A')
     # print(A.toarray())
@@ -283,12 +429,12 @@ def dimile_new():
     # print(D.toarray())
     # print('L + U + D')
     # print((L+U+D).toarray())
-    omega = 1.9
-    v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, ic0_preconditioner(A))
+    omega = 1.8
     # v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, ssor_preconditioner(L, D, U, omega))
+    # v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, ilu0_preconditioner(A, drop_tol=1e-4, fill_factor=10))
     # v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, sgs_preconditioner(L, U, D))
     # v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, jacobi_preconditioner(A))
-    # v, lambda_v = shifted_inverse_power_method(A, sigma, cg, lambda x: x)
+    v, lambda_v = shifted_inverse_power_method(A, sigma, cg, lambda x: x)
     # print(f"\nEigenvector v closest to mu={mu}:")
     # print(v)
     print(f"\nEigenvalue lambda_v closest to sigma={sigma}:")
