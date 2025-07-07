@@ -67,6 +67,47 @@ def shifted_inverse_power_method(A, sigma, solver, precond=None, tol=1e-8, max_i
     lambda_x = np.dot(x, A @ x) / np.dot(x, x)
     return x, lambda_x
 
+def gmres_restarted(A, b, max_dim, precond=None, tol=1e-8, max_iter=1000):
+    """Generalized Minimal Residual (GMRES) method to solve Ax = b for a linear operator A."""
+    x = np.zeros_like(b)
+    r = b - A @ x
+    gamma = np.linalg.norm(r)
+    if gamma < tol:
+        return x
+    v = r / gamma
+    # n = len(b)
+    # Q = np.zeros((n, max_iter + 1))
+    H = np.zeros((max_dim + 1, max_dim))
+    # Q[:, 0] = r / gamma
+    for j in range(max_dim):
+        w = A @ v
+        for i in range(j + 1):
+            H[i, j] = np.dot(v, w)
+            w = w - H[i, j] * v
+        H[j + 1, j] = np.linalg.norm(w)
+        for i in range(j + 1):
+            
+        
+        y = Q[:, j]
+        if precond is not None:
+            y = precond(y)
+        v = A @ y
+        for j in range(j + 1):
+            H[j, j] = np.dot(Q[:, j], v)
+            v = v - H[j, j] * Q[:, j]
+        H[j + 1, j] = np.linalg.norm(v)
+        if H[j + 1, j] != 0 and j + 1 < n:
+            Q[:, j + 1] = v / H[j + 1, j]
+        # Solve least squares problem
+        e1 = np.zeros(j + 2)
+        e1[0] = gamma
+        y_ls, *_ = np.linalg.lstsq(H[:j + 2, :j + 1], e1, rcond=None)
+        x_approx = x + Q[:, :j + 1] @ y_ls
+        res_norm = np.linalg.norm(b - A @ x_approx)
+        if res_norm < tol:
+            return x_approx
+    return x_approx
+
 def cg(A, b, precond=None, tol=1e-8, max_iter=1000):
     """Conjugate Gradient method to solve Ax = b for a linear operator A.
         operator: Function that applies the linear operator A to a vector.
