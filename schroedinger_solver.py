@@ -128,15 +128,15 @@ def pcg(A, b, preconditioner, tol=1e-8, max_iter=1000):
         p = z + beta * p
         rz_old = rz_new
         iterations += 1
-    print(f"PCG iterations: {iterations}")
-    plt.plot(res)
-    plt.yscale('log')
-    plt.xlabel('Iteration')
-    plt.ylabel('Residual Norm')
-    plt.title('Convergence of PCG Method')
-    plt.grid()
-    plt.show()
-    exit()
+    # print(f"PCG iterations: {iterations}")
+    # plt.plot(res)
+    # plt.yscale('log')
+    # plt.xlabel('Iteration')
+    # plt.ylabel('Residual Norm')
+    # plt.title('Convergence of PCG Method')
+    # plt.grid()
+    # plt.show()
+    # exit()
     return x
 
 # Return A, L, U matrices for the sparse matrix A
@@ -242,6 +242,7 @@ def ic0_preconditioner(A):
         return x
     return precondition
 
+
 def analytical_laplacian_eigenvalue(p, q, N):
     """
     Compute the eigenvalue λ_{p,q} of the 2D Laplacian with Dirichlet boundary conditions.
@@ -260,7 +261,7 @@ def analytical_laplacian_eigenvalue(p, q, N):
     return -(1 / h**2) * (np.cos(p * np.pi * h) + np.cos(q * np.pi * h) - 2)
 
 def dimile_new():
-    N = 64
+    N = 45
     # u = np.arange(N * N).reshape(N, N)
     u = np.ones((N, N))  # Using a simple constant function for demonstration
     # print("u (2D grid):")
@@ -269,31 +270,44 @@ def dimile_new():
     u_flat = u.reshape(N * N)
     
     sigma = 0
-    # potential_operator = lambda u: multiply_potential(u, harmonic_potential)
-    # summed_operator = lambda u: potential_operator(u) - 0.5 * laplace(u)
+
     A = sparse_system_matrix(N, lambda x, y: 0*x*y)
     L, U, D = split_matrix(A)
-    # print('A')
-    # print(A.toarray())
-    # print('L')
-    # print(L.toarray())
-    # print('U')
-    # print(U.toarray())
-    # print('D')
-    # print(D.toarray())
-    # print('L + U + D')
-    # print((L+U+D).toarray())
-    omega = 1.9
+
+    omega = 1.8
+    start_time = time.time()
     v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, ic0_preconditioner(A))
-    # v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, ssor_preconditioner(L, D, U, omega))
-    # v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, sgs_preconditioner(L, U, D))
-    # v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, jacobi_preconditioner(A))
-    # v, lambda_v = shifted_inverse_power_method(A, sigma, cg, lambda x: x)
+    elapsed_time = time.time() - start_time
+    print(f"Time for shifted_inverse_power_method with IC(0) preconditioner: {elapsed_time:.4f} seconds")
+    # SSOR preconditioner
+    start_time = time.time()
+    v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, ssor_preconditioner(L, D, U, omega))
+    elapsed_time = time.time() - start_time
+    print(f"Time for shifted_inverse_power_method with SSOR preconditioner: {elapsed_time:.4f} seconds")
+
+    # SGS preconditioner
+    start_time = time.time()
+    v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, sgs_preconditioner(L, U, D))
+    elapsed_time = time.time() - start_time
+    print(f"Time for shifted_inverse_power_method with SGS preconditioner: {elapsed_time:.4f} seconds")
+
+    # Jacobi preconditioner
+    start_time = time.time()
+    v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, jacobi_preconditioner(A))
+    elapsed_time = time.time() - start_time
+    print(f"Time for shifted_inverse_power_method with Jacobi preconditioner: {elapsed_time:.4f} seconds")
+
+    # No preconditioner (plain CG)
+    start_time = time.time()
+    v, lambda_v = shifted_inverse_power_method(A, sigma, cg, None)
+    elapsed_time = time.time() - start_time
+    print(f"Time for shifted_inverse_power_method with no preconditioner (plain CG): {elapsed_time:.4f} seconds")
     # print(f"\nEigenvector v closest to mu={mu}:")
     # print(v)
     print(f"\nEigenvalue lambda_v closest to sigma={sigma}:")
     print(lambda_v)
     print(f"Analytical eigenvalue: {analytical_laplacian_eigenvalue(1, 1, N)}")
+    print(f"difference: {lambda_v - analytical_laplacian_eigenvalue(1, 1, N)}")
 
     # Plot the eigenvector over the grid
     h = 1.0 / (N + 1)
@@ -325,10 +339,10 @@ if __name__ == "__main__":
     # V1 = build_potential_matrix(3)
     # print("Potential matrix V1:")
     # print(V1)
-    B = sparse_laplacian_matrix(3)
+    # B = sparse_laplacian_matrix(3)
     # print("Sparse Laplacian matrix B:")
     # print(B.toarray())  # Convert sparse matrix to dense for printing
-    V2 = sparse_potential_matrix(3)
+    # V2 = sparse_potential_matrix(3)
     # print("Sparse Potential matrix V2:")
     # print(V2.toarray())  # Convert sparse matrix to dense for printing
     # true = -0.5 * B + V2
