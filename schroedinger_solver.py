@@ -31,6 +31,15 @@ def harmonic_potential(x, y):
     """Harmonic potential V(x, y) = 0.5 * (x^2 + y^2) as lambda function."""
     return (x - 0.5)**2 + (y - 0.5)**2
 
+def step_potential(x, y):
+    """Step potential V(x, y) = 1 if x > 0.5 and y > 0.5, else 0."""
+    return np.where((x > 0.5) & (y > 0.5), 2000, 0.0)
+
+def double_well_potential(x, y):
+    """Double well potential energy surface in 2D, centered at (0.5, 0.5), horizontal wells."""
+    return 500 * ((x - 0.5)**2 - 0.25)**2 + 1000*(y - 0.5)**2
+
+
 def sparse_potential_matrix(N, potential=harmonic_potential):
     """Construct a sparse potential matrix for the 2D grid."""
     h = 1.0 / (N + 1)
@@ -67,46 +76,46 @@ def shifted_inverse_power_method(A, sigma, solver, precond=None, tol=1e-8, max_i
     lambda_x = np.dot(x, A @ x) / np.dot(x, x)
     return x, lambda_x
 
-def gmres_restarted(A, b, max_dim, precond=None, tol=1e-8, max_iter=1000):
-    """Generalized Minimal Residual (GMRES) method to solve Ax = b for a linear operator A."""
-    x = np.zeros_like(b)
-    r = b - A @ x
-    gamma = np.linalg.norm(r)
-    if gamma < tol:
-        return x
-    v = r / gamma
-    # n = len(b)
-    # Q = np.zeros((n, max_iter + 1))
-    H = np.zeros((max_dim + 1, max_dim))
-    # Q[:, 0] = r / gamma
-    for j in range(max_dim):
-        w = A @ v
-        for i in range(j + 1):
-            H[i, j] = np.dot(v, w)
-            w = w - H[i, j] * v
-        H[j + 1, j] = np.linalg.norm(w)
-        for i in range(j + 1):
+# def gmres_restarted(A, b, max_dim, precond=None, tol=1e-8, max_iter=1000):
+#     """Generalized Minimal Residual (GMRES) method to solve Ax = b for a linear operator A."""
+#     x = np.zeros_like(b)
+#     r = b - A @ x
+#     gamma = np.linalg.norm(r)
+#     if gamma < tol:
+#         return x
+#     v = r / gamma
+#     # n = len(b)
+#     # Q = np.zeros((n, max_iter + 1))
+#     H = np.zeros((max_dim + 1, max_dim))
+#     # Q[:, 0] = r / gamma
+#     for j in range(max_dim):
+#         w = A @ v
+#         for i in range(j + 1):
+#             H[i, j] = np.dot(v, w)
+#             w = w - H[i, j] * v
+#         H[j + 1, j] = np.linalg.norm(w)
+#         for i in range(j + 1):
             
         
-        y = Q[:, j]
-        if precond is not None:
-            y = precond(y)
-        v = A @ y
-        for j in range(j + 1):
-            H[j, j] = np.dot(Q[:, j], v)
-            v = v - H[j, j] * Q[:, j]
-        H[j + 1, j] = np.linalg.norm(v)
-        if H[j + 1, j] != 0 and j + 1 < n:
-            Q[:, j + 1] = v / H[j + 1, j]
-        # Solve least squares problem
-        e1 = np.zeros(j + 2)
-        e1[0] = gamma
-        y_ls, *_ = np.linalg.lstsq(H[:j + 2, :j + 1], e1, rcond=None)
-        x_approx = x + Q[:, :j + 1] @ y_ls
-        res_norm = np.linalg.norm(b - A @ x_approx)
-        if res_norm < tol:
-            return x_approx
-    return x_approx
+#         y = Q[:, j]
+#         if precond is not None:
+#             y = precond(y)
+#         v = A @ y
+#         for j in range(j + 1):
+#             H[j, j] = np.dot(Q[:, j], v)
+#             v = v - H[j, j] * Q[:, j]
+#         H[j + 1, j] = np.linalg.norm(v)
+#         if H[j + 1, j] != 0 and j + 1 < n:
+#             Q[:, j + 1] = v / H[j + 1, j]
+#         # Solve least squares problem
+#         e1 = np.zeros(j + 2)
+#         e1[0] = gamma
+#         y_ls, *_ = np.linalg.lstsq(H[:j + 2, :j + 1], e1, rcond=None)
+#         x_approx = x + Q[:, :j + 1] @ y_ls
+#         res_norm = np.linalg.norm(b - A @ x_approx)
+#         if res_norm < tol:
+#             return x_approx
+#     return x_approx
 
 def cg(A, b, precond=None, tol=1e-8, max_iter=1000):
     """Conjugate Gradient method to solve Ax = b for a linear operator A.
@@ -309,34 +318,35 @@ def dimile_new():
     # print(u)
 
     u_flat = u.reshape(N * N)
-    
+    potential = lambda x, y: double_well_potential(x,y)
     sigma = 0
-
-    A = sparse_system_matrix(N, lambda x, y: 0*x*y)
+    
+    # A = sparse_system_matrix(N, lambda x, y: 0*x*y)
+    A = sparse_system_matrix(N, potential)
     L, U, D = split_matrix(A)
 
-    omega = 1.8
-    start_time = time.time()
-    v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, ic0_preconditioner(A))
-    elapsed_time = time.time() - start_time
-    print(f"Time for shifted_inverse_power_method with IC(0) preconditioner: {elapsed_time:.4f} seconds")
-    # SSOR preconditioner
-    start_time = time.time()
-    v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, ssor_preconditioner(L, D, U, omega))
-    elapsed_time = time.time() - start_time
-    print(f"Time for shifted_inverse_power_method with SSOR preconditioner: {elapsed_time:.4f} seconds")
+    # omega = 1.8
+    # start_time = time.time()
+    # v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, ic0_preconditioner(A))
+    # elapsed_time = time.time() - start_time
+    # print(f"Time for shifted_inverse_power_method with IC(0) preconditioner: {elapsed_time:.4f} seconds")
+    # # SSOR preconditioner
+    # start_time = time.time()
+    # v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, ssor_preconditioner(L, D, U, omega))
+    # elapsed_time = time.time() - start_time
+    # print(f"Time for shifted_inverse_power_method with SSOR preconditioner: {elapsed_time:.4f} seconds")
 
-    # SGS preconditioner
-    start_time = time.time()
-    v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, sgs_preconditioner(L, U, D))
-    elapsed_time = time.time() - start_time
-    print(f"Time for shifted_inverse_power_method with SGS preconditioner: {elapsed_time:.4f} seconds")
+    # # SGS preconditioner
+    # start_time = time.time()
+    # v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, sgs_preconditioner(L, U, D))
+    # elapsed_time = time.time() - start_time
+    # print(f"Time for shifted_inverse_power_method with SGS preconditioner: {elapsed_time:.4f} seconds")
 
-    # Jacobi preconditioner
-    start_time = time.time()
-    v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, jacobi_preconditioner(A))
-    elapsed_time = time.time() - start_time
-    print(f"Time for shifted_inverse_power_method with Jacobi preconditioner: {elapsed_time:.4f} seconds")
+    # # Jacobi preconditioner
+    # start_time = time.time()
+    # v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, jacobi_preconditioner(A))
+    # elapsed_time = time.time() - start_time
+    # print(f"Time for shifted_inverse_power_method with Jacobi preconditioner: {elapsed_time:.4f} seconds")
 
     # No preconditioner (plain CG)
     start_time = time.time()
@@ -363,9 +373,9 @@ def dimile_new():
     plt.show()
     # Plot the potential
     plt.figure(figsize=(8, 6)) 
-    plt.pcolormesh(X, Y, harmonic_potential(X, Y).reshape(N, N), shading='auto', cmap='plasma')
+    plt.pcolormesh(X, Y, potential(X, Y).reshape(N, N), shading='auto', cmap='plasma')
     plt.colorbar(label='Potential V(x, y)')
-    plt.title('Harmonic Potential V(x, y)')
+    plt.title('Potential V(x, y)')
     plt.xlabel('x')
     plt.ylabel('y')
     plt.show()
