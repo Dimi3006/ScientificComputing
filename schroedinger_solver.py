@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import scipy.sparse as sp
 import time
 from scipy.sparse.linalg import spilu
+from scipy.sparse.linalg import eigsh, eigs
 
 def sparse_laplacian_matrix(N):
     """Construct a sparse Laplacian matrix for a 2D grid (Dirichlet boundary)."""
@@ -63,8 +64,10 @@ def shifted_inverse_power_method(A, sigma, solver, precond=None, tol=1e-8, max_i
     N = int(np.sqrt(A.shape[0]))
     x = np.ones(N**2)
     x = x / np.linalg.norm(x)
+    
 
     shifted_matrix = A - sigma * sp.eye(N**2, format='csr')
+
     
     for _ in range(max_iter):
         y = solver(shifted_matrix, x, precond)
@@ -75,47 +78,6 @@ def shifted_inverse_power_method(A, sigma, solver, precond=None, tol=1e-8, max_i
 
     lambda_x = np.dot(x, A @ x) / np.dot(x, x)
     return x, lambda_x
-
-# def gmres_restarted(A, b, max_dim, precond=None, tol=1e-8, max_iter=1000):
-#     """Generalized Minimal Residual (GMRES) method to solve Ax = b for a linear operator A."""
-#     x = np.zeros_like(b)
-#     r = b - A @ x
-#     gamma = np.linalg.norm(r)
-#     if gamma < tol:
-#         return x
-#     v = r / gamma
-#     # n = len(b)
-#     # Q = np.zeros((n, max_iter + 1))
-#     H = np.zeros((max_dim + 1, max_dim))
-#     # Q[:, 0] = r / gamma
-#     for j in range(max_dim):
-#         w = A @ v
-#         for i in range(j + 1):
-#             H[i, j] = np.dot(v, w)
-#             w = w - H[i, j] * v
-#         H[j + 1, j] = np.linalg.norm(w)
-#         for i in range(j + 1):
-            
-        
-#         y = Q[:, j]
-#         if precond is not None:
-#             y = precond(y)
-#         v = A @ y
-#         for j in range(j + 1):
-#             H[j, j] = np.dot(Q[:, j], v)
-#             v = v - H[j, j] * Q[:, j]
-#         H[j + 1, j] = np.linalg.norm(v)
-#         if H[j + 1, j] != 0 and j + 1 < n:
-#             Q[:, j + 1] = v / H[j + 1, j]
-#         # Solve least squares problem
-#         e1 = np.zeros(j + 2)
-#         e1[0] = gamma
-#         y_ls, *_ = np.linalg.lstsq(H[:j + 2, :j + 1], e1, rcond=None)
-#         x_approx = x + Q[:, :j + 1] @ y_ls
-#         res_norm = np.linalg.norm(b - A @ x_approx)
-#         if res_norm < tol:
-#             return x_approx
-#     return x_approx
 
 def cg(A, b, precond=None, tol=1e-8, max_iter=1000):
     """Conjugate Gradient method to solve Ax = b for a linear operator A.
@@ -187,6 +149,67 @@ def pcg(A, b, preconditioner, tol=1e-8, max_iter=1000):
     # plt.grid()
     # plt.show()
     # exit()
+    return x
+
+def gmres_restarted(A, b, preconditioner, tol=1e-8, max_iter=1000, restart=50):
+    """Restarted GMRES method to solve Ax = b.
+    
+    Args:
+        A: A linear operator (NumPy 2D array or a function that implements matvec).
+        b: Right-hand side vector.
+        restart: Number of inner iterations before restart.
+        tol: Convergence tolerance.
+        max_iter: Maximum number of outer iterations.
+    
+    Returns:
+        x: Approximate solution.
+    """
+    n = len(b)
+    x = np.zeros_like(b)
+    r = b - A @ x
+    res = [np.linalg.norm(r)]
+    iterations = 0
+
+    for outer in range(max_iter):
+        beta = np.linalg.norm(r)
+        if beta < tol:
+            break
+
+        # Initialize Krylov basis and Hessenberg matrix
+        V = np.zeros((n, restart + 1))
+        H = np.zeros((restart + 1, restart))
+        V[:, 0] = r / beta
+
+        for j in range(restart):
+            w = A @ V[:, j]
+            for i in range(j + 1):
+                H[i, j] = np.dot(w, V[:, i])
+                w -= H[i, j] * V[:, i]
+            H[j + 1, j] = np.linalg.norm(w)
+            if H[j + 1, j] != 0 and j + 1 < restart:
+                V[:, j + 1] = w / H[j + 1, j]
+
+            # Solve least squares problem min ||beta * e1 - H y||
+            e1 = np.zeros(j + 2)
+            e1[0] = beta
+            Hj = H[:j + 2, :j + 1]
+            y, _, _, _ = np.linalg.lstsq(Hj, e1, rcond=None)
+            x_new = x + V[:, :j + 1] @ y
+            r = b - A @ x_new
+            res_norm = np.linalg.norm(r)
+            res.append(res_norm)
+            iterations += 1
+
+            if res_norm < tol:
+                x = x_new
+                print(f"GMRES converged at outer iteration {outer}, inner iteration {j}")
+                print(f"Total iterations: {iterations}")
+                return x
+
+        x = x_new
+        r = b - A @ x
+
+    print(f"GMRES stopped after {iterations} iterations with residual {res[-1]:.2e}")
     return x
 
 # Return A, L, U matrices for the sparse matrix A
@@ -318,7 +341,7 @@ def dimile_new():
     # print(u)
 
     u_flat = u.reshape(N * N)
-    potential = lambda x, y: double_well_potential(x,y)
+    potential = lambda x,y: 0*x*y #lambda x, y: double_well_potential(x,y)
     sigma = 0
     
     # A = sparse_system_matrix(N, lambda x, y: 0*x*y)
@@ -353,8 +376,20 @@ def dimile_new():
     v, lambda_v = shifted_inverse_power_method(A, sigma, cg, None)
     elapsed_time = time.time() - start_time
     print(f"Time for shifted_inverse_power_method with no preconditioner (plain CG): {elapsed_time:.4f} seconds")
-    # print(f"\nEigenvector v closest to mu={mu}:")
-    # print(v)
+    
+    # CG with scipy
+    # start_time = time.time()
+    # v, lambda_v = shifted_inverse_power_method(A, sigma, sp.linalg.cg, None)
+    # elapsed_time = time.time() - start_time
+    # print(f"Time for shifted_inverse_power_method with scipy CG: {elapsed_time:.4f} seconds")
+
+    # GMRES restarted
+    start_time = time.time()
+    # v, lambda_v = shifted_inverse_power_method(A, sigma, gmres_restarted, None)
+    elapsed_time = time.time() - start_time
+    print(f"Time for GMRES restarted: {elapsed_time:.4f} seconds")
+
+
     print(f"\nEigenvalue lambda_v closest to sigma={sigma}:")
     print(lambda_v)
     print(f"Analytical eigenvalue: {analytical_laplacian_eigenvalue(1, 1, N)}")
@@ -380,26 +415,5 @@ def dimile_new():
     plt.ylabel('y')
     plt.show()
 
-def test_cg():
-    pass
-
 if __name__ == "__main__":
-    # A = build_laplacian_matrix(3)
-    # print("Laplacian matrix A:")    
-    # print(A)
-    # V1 = build_potential_matrix(3)
-    # print("Potential matrix V1:")
-    # print(V1)
-    # B = sparse_laplacian_matrix(3)
-    # print("Sparse Laplacian matrix B:")
-    # print(B.toarray())  # Convert sparse matrix to dense for printing
-    # V2 = sparse_potential_matrix(3)
-    # print("Sparse Potential matrix V2:")
-    # print(V2.toarray())  # Convert sparse matrix to dense for printing
-    # true = -0.5 * B + V2
-    # print(true.toarray())  # Convert sparse matrix to dense for printing
-    # our = sparse_system_matrix(3)
-    # print(our.toarray())  # Convert sparse matrix to dense for printing
-
-    # dimile_old()
     dimile_new()
