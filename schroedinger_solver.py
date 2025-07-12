@@ -4,6 +4,7 @@ import scipy.sparse as sp
 import time
 from scipy.sparse.linalg import spilu
 from scipy.sparse.linalg import eigsh, eigs
+import os
 
 def sparse_laplacian_matrix(N):
     """Construct a sparse Laplacian matrix for a 2D grid (Dirichlet boundary)."""
@@ -22,7 +23,7 @@ def sparse_laplacian_matrix(N):
         left_diag[i * N - 1] = 0
         right_diag[i * N - 1] = 0
 
-    diagonals = [up_diag, left_diag, main_diag, right_diag, down_diag]
+    diagonals = [down_diag, left_diag, main_diag, right_diag, up_diag]
     offsets = [-N, -1, 0, 1, N]
 
     laplacian = sp.diags(diagonals, offsets, shape=(size, size), format='csr')
@@ -104,7 +105,14 @@ def cg(A, b, precond=None, tol=1e-8, max_iter=1000):
         p = r + (alpha_new / alpha_old) * p
         alpha_old = alpha_new
         iterations += 1
-    print(f"CG iterations: {iterations}")
+    # print(f"CG iterations: {iterations}")
+    N = int(np.sqrt(A.shape[0]))
+    with open(f"data/cg_{N}_residuals.txt", "a") as f:
+        f.write(f"res: {res}\n")
+    
+    with open(f"data/cg_{N}_iterations.txt", "a") as f:
+        f.write(f"iterations: {iterations}\n")
+
     # plt.plot(res)
     # plt.yscale('log')
     # plt.xlabel('Iteration')
@@ -140,6 +148,27 @@ def pcg(A, b, preconditioner, tol=1e-8, max_iter=1000):
         p = z + beta * p
         rz_old = rz_new
         iterations += 1
+    
+    # with open(f"data/pcg_{preconditioner.__name__}_residuals.txt", "a") as f:
+    #     f.write(f"res: {res}\n")
+    
+    # with open(f"data/pcg_{preconditioner.__name__}_iterations.txt", "a") as f:
+    #     f.write(f"iterations: {iterations}\n")
+    N = int(np.sqrt(A.shape[0]))
+    # if preconditioner.__name__ == 'ssor_precond':
+    #     with open(f"data/pcg_{preconditioner.__name__}_{preconditioner.omega:.1f}_residuals.txt", "a") as f:
+    #         f.write(f"res: {res}\n")
+    
+    #     with open(f"data/pcg_{preconditioner.__name__}_{preconditioner.omega:.1f}_iterations.txt", "a") as f:
+    #         f.write(f"iterations: {iterations}\n")
+    # else:
+    with open(f"data/pcg_{preconditioner.__name__}_{N}_residuals.txt", "a") as f:
+        f.write(f"res: {res}\n")
+
+    with open(f"data/pcg_{preconditioner.__name__}_{N}_iterations.txt", "a") as f:
+        f.write(f"iterations: {iterations}\n")
+
+
     # print(f"PCG iterations: {iterations}")
     # plt.plot(res)
     # plt.yscale('log')
@@ -227,9 +256,9 @@ def jacobi_preconditioner(A):
     if np.any(D == 0):
         raise ValueError("Jacobi preconditioner: zero on diagonal.")
 
-    def precondition(r):
+    def jacobi_precond(r):
         return r / D
-    return precondition
+    return jacobi_precond
 
 # def sgs_preconditioner(L, U, D):
 #     """Symmetric Gauss-Seidel preconditioner for the system matrix."""
@@ -258,26 +287,27 @@ def sgs_preconditioner(L, U, D):
     """Symmetric Gauss-Seidel preconditioner for the system matrix."""
     LD = (L + D).tocsr()
     UD = (U + D).tocsr()
-    def preconditioner(r):
+    def sgs_precond(r):
         # Use spsolve instead of spsolve_triangular for possible speedup
         z3 = sp.linalg.spsolve(LD, r)
         z2 = D @ z3
         z = sp.linalg.spsolve(UD, z2)
         return z
-    return preconditioner
+    return sgs_precond
 
 def ssor_preconditioner(L, D, U, omega=1.8):
     """Symmetric Successive Over-Relaxation (SSOR) preconditioner for the system matrix."""
     LD = (L + D / omega).tocsr()
     UD = (U + D / omega).tocsr()
     
-    def preconditioner(r):
+    def ssor_precond(r):
+        ssor_precond.omega = omega
         # Use spsolve instead of spsolve_triangular for possible speedup
         z3 = sp.linalg.spsolve((1/(2-omega))*LD, r)
         z2 = (D/omega) @ z3
         z = sp.linalg.spsolve(UD, z2)
         return z
-    return preconditioner
+    return ssor_precond
 
 def ic0_preconditioner(A):
     """
@@ -307,13 +337,13 @@ def ic0_preconditioner(A):
                 else:
                     L[i, j] = s / L[j, j]
     L = L.tocsr()
-    def precondition(r):
+    def ic0_precond(r):
         # Solve L y = r
         y = sp.linalg.spsolve(L, r)
         # Solve L^T x = y
         x = sp.linalg.spsolve(L.transpose().tocsr(), y)
         return x
-    return precondition
+    return ic0_precond
 
 
 def analytical_laplacian_eigenvalue(p, q, N):
@@ -341,7 +371,8 @@ def dimile_new():
     # print(u)
 
     u_flat = u.reshape(N * N)
-    potential = lambda x,y: 0*x*y #lambda x, y: double_well_potential(x,y)
+    # potential = lambda x,y: 0*x*y #lambda x, y: double_well_potential(x,y)
+    potential = harmonic_potential  # Change to desired potential function
     sigma = 0
     
     # A = sparse_system_matrix(N, lambda x, y: 0*x*y)
@@ -373,6 +404,8 @@ def dimile_new():
 
     # No preconditioner (plain CG)
     start_time = time.time()
+    # open("cg_residuals.txt", "w").close()
+    # open("cg_iterations.txt", "w").close()
     v, lambda_v = shifted_inverse_power_method(A, sigma, cg, None)
     elapsed_time = time.time() - start_time
     print(f"Time for shifted_inverse_power_method with no preconditioner (plain CG): {elapsed_time:.4f} seconds")
@@ -383,37 +416,244 @@ def dimile_new():
     # elapsed_time = time.time() - start_time
     # print(f"Time for shifted_inverse_power_method with scipy CG: {elapsed_time:.4f} seconds")
 
-    # GMRES restarted
-    start_time = time.time()
-    # v, lambda_v = shifted_inverse_power_method(A, sigma, gmres_restarted, None)
-    elapsed_time = time.time() - start_time
-    print(f"Time for GMRES restarted: {elapsed_time:.4f} seconds")
+    # # GMRES restarted
+    # start_time = time.time()
+    # # v, lambda_v = shifted_inverse_power_method(A, sigma, gmres_restarted, None)
+    # elapsed_time = time.time() - start_time
+    # print(f"Time for GMRES restarted: {elapsed_time:.4f} seconds")
 
 
-    print(f"\nEigenvalue lambda_v closest to sigma={sigma}:")
-    print(lambda_v)
-    print(f"Analytical eigenvalue: {analytical_laplacian_eigenvalue(1, 1, N)}")
-    print(f"difference: {lambda_v - analytical_laplacian_eigenvalue(1, 1, N)}")
+    # print(f"\nEigenvalue lambda_v closest to sigma={sigma}:")
+    # print(lambda_v)
+    # print(f"Analytical eigenvalue: {analytical_laplacian_eigenvalue(1, 1, N)}")
+    # print(f"difference: {lambda_v - analytical_laplacian_eigenvalue(1, 1, N)}")
 
-    # Plot the eigenvector over the grid
-    h = 1.0 / (N + 1)
-    x_list = np.linspace(h, 1 - h, N)
-    X, Y = np.meshgrid(x_list, x_list, indexing='ij')
-    plt.figure(figsize=(8, 6))
-    plt.pcolormesh(X, Y, v.reshape(N, N), shading='auto', cmap='viridis')
-    plt.colorbar(label='Eigenvector value')
-    plt.title('Eigenvector closest to mu')
-    plt.xlabel('x')
-    plt.ylabel('y')
+    # # Plot the eigenvector over the grid
+    # h = 1.0 / (N + 1)
+    # x_list = np.linspace(h, 1 - h, N)
+    # X, Y = np.meshgrid(x_list, x_list, indexing='ij')
+    # plt.figure(figsize=(8, 6))
+    # plt.pcolormesh(X, Y, v.reshape(N, N), shading='auto', cmap='viridis')
+    # plt.colorbar(label='Eigenvector value')
+    # plt.title('Eigenvector closest to mu')
+    # plt.xlabel('x')
+    # plt.ylabel('y')
+    # plt.show()
+    # # Plot the potential
+    # plt.figure(figsize=(8, 6)) 
+    # plt.pcolormesh(X, Y, potential(X, Y).reshape(N, N), shading='auto', cmap='plasma')
+    # plt.colorbar(label='Potential V(x, y)')
+    # plt.title('Potential V(x, y)')
+    # plt.xlabel('x')
+    # plt.ylabel('y')
+    # plt.show()
+
+def compute_residuals(N):
+    u = np.ones((N, N))  
+
+    u_flat = u.reshape(N * N)
+    potential = harmonic_potential  
+    sigma = 0
+    
+    A = sparse_system_matrix(N, potential)
+    L, U, D = split_matrix(A)
+
+    # preconditioner_list = [
+    #     jacobi_preconditioner(A),
+    #     sgs_preconditioner(L, U, D),
+    #     ssor_preconditioner(L, D, U, omega=1.8),
+    #     ic0_preconditioner(A),
+    # ]
+
+
+    # omega_list = np.arange(0.6, 2.3, 0.2)
+    # preconditioner_list = [sgs_preconditioner(L, U, D)]
+    # for omega in omega_list:
+    #     preconditioner_list.append(ssor_preconditioner(L, D, U, omega))
+
+    v, lambda_v = shifted_inverse_power_method(A, sigma, cg, None)
+    v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, ssor_preconditioner(L, D, U, 1.8))
+    # for precond in preconditioner_list:
+    #     v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, precond)
+
+
+def read_residuals(filename="cg_residuals.txt"):
+    """Read all residuals from a file and return them as a single concatenated list, also returning the first residual list."""
+    all_res = []
+    first_res = None
+    with open(filename, "r") as f:
+        for line in f:
+            if line.startswith("res:"):
+                res_line = line.split("res:")[1].strip()
+                res = eval(res_line)
+                all_res.extend(res)
+                if first_res is None:
+                    first_res = res
+    return first_res, all_res
+
+def plot_residuals(res, solver_name="cg"):
+    """Plot the residuals of the CG method."""
+    os.makedirs('plots', exist_ok=True)
+    plt.yscale('log')
+    plt.xlabel('Iteration')
+    plt.ylabel('Residual Norm')
+    plt.title('Convergence of CG Method')
+    plt.grid()
+    plt.savefig(os.path.join('plots', f'{solver_name}_residuals.png'))
     plt.show()
-    # Plot the potential
-    plt.figure(figsize=(8, 6)) 
-    plt.pcolormesh(X, Y, potential(X, Y).reshape(N, N), shading='auto', cmap='plasma')
-    plt.colorbar(label='Potential V(x, y)')
-    plt.title('Potential V(x, y)')
-    plt.xlabel('x')
-    plt.ylabel('y')
+
+def read_iterations(filename="cg_iterations.txt"):
+    """Read all iteration counts from a file and return them as a list, also returning the first iteration count."""
+    all_iters = []
+    first_iters = None
+    with open(filename, "r") as f:
+        for line in f:
+            if line.startswith("iterations:"):
+                iter_line = line.split("iterations:")[1].strip()
+                try:
+                    iters = int(iter_line)
+                    all_iters.append(iters)
+                    if first_iters is None:
+                        first_iters = iters
+                except ValueError:
+                    pass
+    return first_iters, all_iters
+
+def plot_iterations(iters, solver_name="cg"):
+    """Plot the iteration counts."""
+    os.makedirs('plots', exist_ok=True)
+    plt.plot(iters, marker='o')
+    plt.xlabel('Run')
+    plt.ylabel('Iterations')
+    plt.title('CG Iteration Counts per Run')
+    plt.grid()
+    plt.savefig(os.path.join('plots', f'{solver_name}_iterations.png'))
     plt.show()
+
 
 if __name__ == "__main__":
-    dimile_new()
+    # dimile_new()
+
+    # first_res, res = read_residuals()
+    # plot_residuals(first_res)
+
+    # first_iters, iters = read_iterations()
+    # plot_iterations(iters)
+    # Delete all .txt files in the data folder
+    
+
+    # N = 128
+    # CALCULATE = True  # Set to False to skip calculations and only plot results
+
+    # if CALCULATE:
+    #     data_folder = "data"
+    #     if os.path.exists(data_folder):
+    #         for fname in os.listdir(data_folder):
+    #             if fname.endswith(".txt"):
+    #                 os.remove(os.path.join(data_folder, fname))
+
+    #     compute_residuals(N)
+    
+    N_list = [16, 32, 64, 128, 256]
+    # for N in N_list:
+    #     compute_residuals(N)
+
+    # ----------------------------------
+    #
+    # PLOT ITERATIONS OVER N
+    #
+    # ----------------------------------
+    cg_first_iters = []
+    ssor_first_iters = []
+    for N in N_list:
+        filename = f"data/cg_{N}_iterations.txt"
+        if os.path.exists(filename):
+            first_iters, _ = read_iterations(filename)
+            if first_iters is not None:
+                cg_first_iters.append(first_iters)
+        
+        filename = f"data/pcg_ssor_precond_{N}_iterations.txt"
+        if os.path.exists(filename):
+            first_iters, _ = read_iterations(filename)
+            if first_iters is not None:
+                ssor_first_iters.append(first_iters)
+ 
+    plt.figure(figsize=(8, 6))
+    plt.tick_params(axis='both', which='major', labelsize=16)
+    plt.xlabel('Grid size N', fontsize=18)
+    plt.ylabel('First CG Iteration Count', fontsize=18)
+    plt.title('CG Iterations vs Grid Size', fontsize=20)    
+    plt.plot(N_list, cg_first_iters, marker='o', label='CG')
+    plt.plot(N_list, ssor_first_iters, marker='o', label='SSOR PCG (omega=1.8)')
+    plt.legend(fontsize=16)
+    plt.grid(True)
+    plt.savefig(os.path.join('plots', 'cg_iterations_vs_N.png'))
+    plt.show()
+
+    # ----------------------------------
+    #
+    # PLOT RESIDUALS
+    #
+    # ----------------------------------
+    # cg_res, cg_all_res = read_residuals("data/cg_residuals.txt")
+    # plt.plot(cg_res, label='cg')
+
+    # precond_list = ['jacobi_precond', 'sgs_precond', 'ssor_precond', 'ic0_precond']
+
+    # # omega_list = np.arange(0.6, 2.0, 0.2)
+    # # precond_list = ['sgs_precond']
+    # # for omega in omega_list:
+    # #     precond_list.append(f'ssor_precond_{omega:.1f}')
+
+    # precond_res = []
+    # for precond in precond_list:
+    #     first_res, res = read_residuals(f"data/pcg_{precond}_residuals.txt")
+        
+    #     plt.plot(first_res, label=precond)
+    #     first_iters, iters = read_iterations(f"data/pcg_{precond}_iterations.txt")
+    #     print(f"First iteration count for {precond}: {first_iters}")
+
+    # plt.gcf().set_size_inches(12, 8)
+    # plt.yscale('log')
+    # plt.legend()
+    # plt.grid()
+    # plt.tick_params(axis='both', which='major', labelsize=16)
+    # plt.xlabel('Iteration', fontsize=18)
+    # plt.ylabel('Residual Norm', fontsize=18)
+    # plt.title(f'Convergence of PCG Method (N={N})', fontsize=20)
+    # plt.legend(fontsize=16)
+    # plt.grid(True, which='both')
+    # plt.savefig(os.path.join('plots', f'residuals_{N}.png'))
+    # plt.show()
+
+
+    # ----------------------------------
+    #
+    # PLOT ITERATIONS
+    #
+    # ----------------------------------
+    # cg_first_iters, cg_iters = read_iterations("data/cg_iterations.txt")
+    # plt.plot(cg_iters, label='cg')
+
+    # precond_list = ['jacobi_precond', 'sgs_precond', 'ssor_precond_1.8', 'ic0_precond']
+
+    # # omega_list = np.arange(0.6, 2.0, 0.2)
+    # # precond_list = ['sgs_precond']
+    # # for omega in omega_list:
+    # #     precond_list.append(f'ssor_precond_{omega:.1f}')
+
+    # precond_res = []
+    # for precond in precond_list:
+    #     first_iter, iter = read_iterations(f"data/pcg_{precond}_iterations.txt")
+    #     plt.plot(iter, label=precond)
+
+    # plt.gcf().set_size_inches(12, 8)
+    # # plt.yscale('log')
+    # plt.tick_params(axis='both', which='major', labelsize=16)
+    # plt.xlabel('IPM Iteration', fontsize=18)
+    # plt.ylabel('Number of solver iterations', fontsize=18)
+    # plt.title(f'Convergence of PCG Method (N={N})', fontsize=20)
+    # plt.legend(fontsize=16)
+    # plt.grid(True, which='both')
+    # plt.savefig(os.path.join('plots', f'iterations_{N}.png'))
+    # plt.show()
