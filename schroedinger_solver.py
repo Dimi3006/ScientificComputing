@@ -58,12 +58,16 @@ def sparse_system_matrix(N, potential=harmonic_potential):
     A = (-0.5 * L + V).tocsr()  # Sparse matrix with -0.5 * Laplacian + Potential on the diagonal
     return A
 
-def shifted_inverse_power_method(A, sigma, solver, precond=None, tol=1e-8, max_iter=1000):
+def shifted_inverse_power_method(A, sigma, solver, precond=None, tol=1e-8, max_iter=1000, start=None):
     """
     Shifted inverse power method to find eigenvector for eigenvalue closest to mu.
     """
     N = int(np.sqrt(A.shape[0]))
-    x = np.random.rand(N**2)  # Random initial guess
+    if start is None:
+        x = np.random.rand(N**2)  # Random initial guess
+        # x = np.ones(N**2)  # Use a constant initial guess
+    else:
+        x = start.copy()
     x = x / np.linalg.norm(x)
     
 
@@ -504,16 +508,15 @@ def dimile_new():
     fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10)
     plt.show()
 
-def optimal_strategy(N):
-    N = 512
+def optimal_strategy(N=128):
     # u = np.arange(N * N).reshape(N, N)
     u = np.ones((N, N))  # Using a simple constant function for demonstration
     # print("u (2D grid):")
     # print(u)
 
     u_flat = u.reshape(N * N)
-    potential = lambda x,y: 0*x*y #lambda x, y: double_well_potential(x,y)
-    # potential = harmonic_potential  # Change to desired potential function
+    # potential = lambda x,y: 0*x*y #lambda x, y: double_well_potential(x,y)
+    potential = harmonic_potential  # Change to desired potential function
     sigma = 0
     
     # A = sparse_system_matrix(N, lambda x, y: 0*x*y)
@@ -523,14 +526,14 @@ def optimal_strategy(N):
     # SSOR preconditioner
     omega = 1.8
     start_time = time.time()
-    v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, ssor_preconditioner(L, D, U, omega), max_iter=7)
+    v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, ssor_preconditioner(L, D, U, omega), max_iter=8)
     elapsed_time = time.time() - start_time
     print(f"Time for shifted_inverse_power_method with SSOR preconditioner: {elapsed_time:.4f} seconds")
 
 
     # No preconditioner (plain CG)
     start_time = time.time()
-    v, lambda_v = shifted_inverse_power_method(A, sigma, cg, None)
+    v, lambda_v = shifted_inverse_power_method(A, sigma, cg, precond=None, start=v)
     elapsed_time = time.time() - start_time
     print(f"Time for shifted_inverse_power_method with no preconditioner (plain CG): {elapsed_time:.4f} seconds")
 
@@ -562,6 +565,26 @@ def optimal_strategy(N):
     # ax.set_zlabel('Eigenvector value')
     # fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10)
     # plt.show()
+
+def eigenvalue_convergence(N, sigma=0, p=1, q=1):
+    u = np.ones((N, N))  # Using a simple constant function for demonstration
+
+    u_flat = u.reshape(N * N)
+    potential = lambda x,y: 0*x*y #lambda x, y: double_well_potential(x,y)
+
+    # A = sparse_system_matrix(N, lambda x, y: 0*x*y)
+    A = sparse_system_matrix(N, potential)
+    L, U, D = split_matrix(A)
+
+
+    v, lambda_v = shifted_inverse_power_method(A, sigma, cg, precond=None)
+
+    
+    continuous_value = (p**2 + q**2) * np.pi**2 / 2
+    discrete_difference = np.abs(lambda_v - analytical_laplacian_eigenvalue(p, q, N))
+    real_difference = np.abs(lambda_v - continuous_value)
+    return discrete_difference, real_difference, continuous_value
+
 
 
 def compute_residuals(N):
@@ -648,7 +671,31 @@ def plot_iterations(iters, solver_name="cg"):
 
 
 if __name__ == "__main__":
-    dimile_new()
+    # dimile_new()
+    # optimal_strategy(128)
+
+    N_list = [4, 8, 16, 32, 64, 128, 256, 512, 1024]
+    # Plot eigenvalue convergence for each N
+    discrete_diffs = []
+    real_diffs = []
+    for N in N_list:
+        discrete_diff, real_diff, cont_value = eigenvalue_convergence(N, sigma=24, p=1, q=2)
+        discrete_diffs.append(discrete_diff)
+        real_diffs.append(real_diff)
+        print(f"N={N}, Discrete Difference: {discrete_diff}, Real Difference: {real_diff}")
+
+    plt.figure(figsize=(8, 6))
+    plt.plot(N_list, discrete_diffs, marker='o', label=r'$| \lambda_{1,1} - \lambda(\sigma = 24) |$')
+    plt.plot(N_list, real_diffs, marker='s', label=r'$| \frac{5}{2} \pi^2 - \lambda(\sigma = 24) |$')
+    plt.xlabel('Grid size N')
+    plt.ylabel('Eigenvalue Difference')
+    plt.title('Eigenvalue Convergence vs Grid Size')
+    plt.xscale('log')
+    plt.yscale('log')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join('plots', 'eigenvalue_convergence_vs_N.png'))
+    plt.show()
     exit()
     # first_res, res = read_residuals()
     # plot_residuals(first_res)
