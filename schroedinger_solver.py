@@ -63,7 +63,7 @@ def shifted_inverse_power_method(A, sigma, solver, precond=None, tol=1e-8, max_i
     Shifted inverse power method to find eigenvector for eigenvalue closest to mu.
     """
     N = int(np.sqrt(A.shape[0]))
-    x = np.ones(N**2)
+    x = np.random.rand(N**2)  # Random initial guess
     x = x / np.linalg.norm(x)
     
 
@@ -180,66 +180,103 @@ def pcg(A, b, preconditioner, tol=1e-8, max_iter=1000):
     # exit()
     return x
 
-def gmres_restarted(A, b, preconditioner, tol=1e-8, max_iter=1000, restart=50):
-    """Restarted GMRES method to solve Ax = b.
+import numpy as np
+from mpl_toolkits.mplot3d import Axes3D
+
+def gmres_restarted(A, b, preconditioner=None, tol=1e-8, max_iter=1000, restart=50):
+    """
+    Restarted GMRES implementation (Algorithm 1.27 with restart).
     
     Args:
-        A: A linear operator (NumPy 2D array or a function that implements matvec).
+        A: Square matrix or function implementing matrix-vector product.
         b: Right-hand side vector.
-        restart: Number of inner iterations before restart.
+        preconditioner: Preconditioner function (optional).
         tol: Convergence tolerance.
         max_iter: Maximum number of outer iterations.
-    
+        restart: Number of inner iterations before restart.
+
     Returns:
         x: Approximate solution.
     """
-    n = len(b)
-    x = np.zeros_like(b)
-    r = b - A @ x
-    res = [np.linalg.norm(r)]
-    iterations = 0
+    n = np.shape(b)[0]
+    x = np.zeros_like(b)  # Initial guess
 
-    for outer in range(max_iter):
-        beta = np.linalg.norm(r)
-        if beta < tol:
-            break
+    for outer_iter in range(max_iter):
+        # Step 1: Initial residual
+        r = b - A @ x if preconditioner is None else preconditioner(b - A @ x)
+        gamma0 = np.linalg.norm(r)
+        # Step 2: Check initial convergence
+        if gamma0 < tol:
+            return x
 
-        # Initialize Krylov basis and Hessenberg matrix
+        # Step 3: Initialize
         V = np.zeros((n, restart + 1))
         H = np.zeros((restart + 1, restart))
-        V[:, 0] = r / beta
+        c_list = np.zeros(restart)
+        s_list = np.zeros(restart)
+        gamma = np.zeros(restart + 1)
+        gamma[0] = gamma0
+        V[:, 0] = r / gamma0
 
+        converged = False
         for j in range(restart):
-            w = A @ V[:, j]
+            # Step 5: Arnoldi loop
+            w = A @ V[:, j] if preconditioner is None else preconditioner(A @ V[:, j])
+
+            # Step 6–9: Modified Gram-Schmidt
             for i in range(j + 1):
                 H[i, j] = np.dot(w, V[:, i])
                 w -= H[i, j] * V[:, i]
+
+            # Step 10: Compute h_{j+1,j}
             H[j + 1, j] = np.linalg.norm(w)
-            if H[j + 1, j] != 0 and j + 1 < restart:
-                V[:, j + 1] = w / H[j + 1, j]
 
-            # Solve least squares problem min ||beta * e1 - H y||
-            e1 = np.zeros(j + 2)
-            e1[0] = beta
-            Hj = H[:j + 2, :j + 1]
-            y, _, _, _ = np.linalg.lstsq(Hj, e1, rcond=None)
-            x_new = x + V[:, :j + 1] @ y
-            r = b - A @ x_new
-            res_norm = np.linalg.norm(r)
-            res.append(res_norm)
-            iterations += 1
+            # Step 11–13: Apply Givens rotations
+            for i in range(j):
+                temp = c_list[i] * H[i, j] + s_list[i] * H[i + 1, j]
+                H[i + 1, j] = -s_list[i] * H[i, j] + c_list[i] * H[i + 1, j]
+                H[i, j] = temp
 
-            if res_norm < tol:
-                x = x_new
-                print(f"GMRES converged at outer iteration {outer}, inner iteration {j}")
-                print(f"Total iterations: {iterations}")
-                return x
+            # Step 14: Compute new Givens rotation
+            beta = np.hypot(H[j, j], H[j + 1, j])
+            if beta == 0:
+                c_list[j], s_list[j] = 1, 0
+            else:
+                c_list[j] = H[j, j] / beta
+                s_list[j] = H[j + 1, j] / beta
 
-        x = x_new
-        r = b - A @ x
+            # Step 15: Apply to H and gamma
+            H[j, j] = beta
+            gamma[j + 1] = -s_list[j] * gamma[j]
+            gamma[j] = c_list[j] * gamma[j]
 
-    print(f"GMRES stopped after {iterations} iterations with residual {res[-1]:.2e}")
+            # Step 16: Check convergence
+            if abs(gamma[j + 1]) < tol:
+                # Step 17–20: Solve for y and update x
+                alpha = np.zeros(j + 1)
+                for i in range(j, -1, -1):
+                    alpha[i] = gamma[i]
+                    for k in range(i + 1, j + 1):
+                        alpha[i] -= H[i, k] * alpha[k]
+                    alpha[i] /= H[i, i]
+                x = x + V[:, :j + 1] @ alpha
+                converged = True
+                break
+
+            # Step 22: Continue with Arnoldi process
+            V[:, j + 1] = w / H[j + 1, j]
+
+        if not converged:
+            alpha = np.zeros(restart)
+            for i in range(restart - 1, -1, -1):
+                alpha[i] = gamma[i]
+                for k in range(i + 1, restart):
+                    alpha[i] -= H[i, k] * alpha[k]
+                alpha[i] /= H[i, i]
+            x = x + V[:, :restart] @ alpha
+
     return x
+
 
 # Return A, L, U matrices for the sparse matrix A
 def split_matrix(A):
@@ -364,20 +401,21 @@ def analytical_laplacian_eigenvalue(p, q, N):
     return -(1 / h**2) * (np.cos(p * np.pi * h) + np.cos(q * np.pi * h) - 2)
 
 def dimile_new():
-    N = 45
+    N = 512
     # u = np.arange(N * N).reshape(N, N)
     u = np.ones((N, N))  # Using a simple constant function for demonstration
     # print("u (2D grid):")
     # print(u)
 
     u_flat = u.reshape(N * N)
-    # potential = lambda x,y: 0*x*y #lambda x, y: double_well_potential(x,y)
-    potential = harmonic_potential  # Change to desired potential function
+    potential = lambda x,y: 0*x*y #lambda x, y: double_well_potential(x,y)
+    # potential = harmonic_potential  # Change to desired potential function
     sigma = 0
     
     # A = sparse_system_matrix(N, lambda x, y: 0*x*y)
     A = sparse_system_matrix(N, potential)
     L, U, D = split_matrix(A)
+
 
     # omega = 1.8
     # start_time = time.time()
@@ -418,28 +456,35 @@ def dimile_new():
 
     # # GMRES restarted
     # start_time = time.time()
-    # # v, lambda_v = shifted_inverse_power_method(A, sigma, gmres_restarted, None)
+    # v, lambda_v = shifted_inverse_power_method(A, sigma, gmres_restarted, None)
     # elapsed_time = time.time() - start_time
     # print(f"Time for GMRES restarted: {elapsed_time:.4f} seconds")
 
 
-    # print(f"\nEigenvalue lambda_v closest to sigma={sigma}:")
-    # print(lambda_v)
-    # print(f"Analytical eigenvalue: {analytical_laplacian_eigenvalue(1, 1, N)}")
-    # print(f"difference: {lambda_v - analytical_laplacian_eigenvalue(1, 1, N)}")
+    print(f"\nEigenvalue lambda_v closest to sigma={sigma}:")
+    print(lambda_v)
+    print(f"Analytical eigenvalue with h={1/(N+1)}: {analytical_laplacian_eigenvalue(1, 1, N)}")
+    print(f"difference: {lambda_v - analytical_laplacian_eigenvalue(1, 1, N)}")
+    print(f"real difference: {np.abs(lambda_v - np.pi**2)}")
 
-    # # Plot the eigenvector over the grid
-    # h = 1.0 / (N + 1)
-    # x_list = np.linspace(h, 1 - h, N)
-    # X, Y = np.meshgrid(x_list, x_list, indexing='ij')
-    # plt.figure(figsize=(8, 6))
-    # plt.pcolormesh(X, Y, v.reshape(N, N), shading='auto', cmap='viridis')
-    # plt.colorbar(label='Eigenvector value')
-    # plt.title('Eigenvector closest to mu')
-    # plt.xlabel('x')
-    # plt.ylabel('y')
-    # plt.show()
-    # # Plot the potential
+    # # print analytical eigenvalues for some combinations of p and q
+    # for p in range(1, 10):
+    #     for q in range(1, 10):
+    #         analytical_eigenvalue = analytical_laplacian_eigenvalue(p, q, N)
+    #         print(f"Analytical eigenvalue for p={p}, q={q}: {analytical_eigenvalue}")
+
+    # Plot the eigenvector over the grid
+    h = 1.0 / (N + 1)
+    x_list = np.linspace(h, 1 - h, N)
+    X, Y = np.meshgrid(x_list, x_list, indexing='ij')
+    plt.figure(figsize=(8, 6))
+    plt.pcolormesh(X, Y, v.reshape(N, N), shading='auto', cmap='viridis')
+    plt.colorbar(label='Eigenvector value')
+    plt.title(f'Eigenvector closest to sigma={sigma}')
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.show()
+    # Plot the potential
     # plt.figure(figsize=(8, 6)) 
     # plt.pcolormesh(X, Y, potential(X, Y).reshape(N, N), shading='auto', cmap='plasma')
     # plt.colorbar(label='Potential V(x, y)')
@@ -447,6 +492,77 @@ def dimile_new():
     # plt.xlabel('x')
     # plt.ylabel('y')
     # plt.show()
+    # 3D surface plot of the eigenvector
+
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
+    surf = ax.plot_surface(X, Y, v.reshape(N, N), cmap='viridis', edgecolor='none')
+    ax.set_title(f'3D Surface: Eigenvector closest to sigma={sigma}')
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.set_zlabel('Eigenvector value')
+    fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10)
+    plt.show()
+
+def optimal_strategy(N):
+    N = 512
+    # u = np.arange(N * N).reshape(N, N)
+    u = np.ones((N, N))  # Using a simple constant function for demonstration
+    # print("u (2D grid):")
+    # print(u)
+
+    u_flat = u.reshape(N * N)
+    potential = lambda x,y: 0*x*y #lambda x, y: double_well_potential(x,y)
+    # potential = harmonic_potential  # Change to desired potential function
+    sigma = 0
+    
+    # A = sparse_system_matrix(N, lambda x, y: 0*x*y)
+    A = sparse_system_matrix(N, potential)
+    L, U, D = split_matrix(A)
+
+    # SSOR preconditioner
+    omega = 1.8
+    start_time = time.time()
+    v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, ssor_preconditioner(L, D, U, omega), max_iter=7)
+    elapsed_time = time.time() - start_time
+    print(f"Time for shifted_inverse_power_method with SSOR preconditioner: {elapsed_time:.4f} seconds")
+
+
+    # No preconditioner (plain CG)
+    start_time = time.time()
+    v, lambda_v = shifted_inverse_power_method(A, sigma, cg, None)
+    elapsed_time = time.time() - start_time
+    print(f"Time for shifted_inverse_power_method with no preconditioner (plain CG): {elapsed_time:.4f} seconds")
+
+
+    print(f"\nEigenvalue lambda_v closest to sigma={sigma}:")
+    print(lambda_v)
+    print(f"Analytical eigenvalue with h={1/(N+1)}: {analytical_laplacian_eigenvalue(1, 1, N)}")
+    print(f"difference: {lambda_v - analytical_laplacian_eigenvalue(1, 1, N)}")
+    print(f"real difference: {np.abs(lambda_v - np.pi**2)}")
+
+    # Plot the eigenvector over the grid
+    h = 1.0 / (N + 1)
+    x_list = np.linspace(h, 1 - h, N)
+    X, Y = np.meshgrid(x_list, x_list, indexing='ij')
+    plt.figure(figsize=(8, 6))
+    plt.pcolormesh(X, Y, v.reshape(N, N), shading='auto', cmap='viridis')
+    plt.colorbar(label='Eigenvector value')
+    plt.title(f'Eigenvector closest to sigma={sigma}')
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.show()
+
+    # fig = plt.figure(figsize=(10, 8))
+    # ax = fig.add_subplot(111, projection='3d')
+    # surf = ax.plot_surface(X, Y, v.reshape(N, N), cmap='viridis', edgecolor='none')
+    # ax.set_title(f'3D Surface: Eigenvector closest to sigma={sigma}')
+    # ax.set_xlabel('x')
+    # ax.set_ylabel('y')
+    # ax.set_zlabel('Eigenvector value')
+    # fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10)
+    # plt.show()
+
 
 def compute_residuals(N):
     u = np.ones((N, N))  
@@ -532,8 +648,8 @@ def plot_iterations(iters, solver_name="cg"):
 
 
 if __name__ == "__main__":
-    # dimile_new()
-
+    dimile_new()
+    exit()
     # first_res, res = read_residuals()
     # plot_residuals(first_res)
 
