@@ -65,8 +65,8 @@ def shifted_inverse_power_method(A, sigma, solver, precond=None, tol=1e-8, max_i
     """
     N = int(np.sqrt(A.shape[0]))
     if start is None:
-        # x = np.random.rand(N**2)  # Random initial guess
-        x = np.ones(N**2)  # Use a constant initial guess
+        x = np.random.rand(N**2)  # Random initial guess
+        # x = np.ones(N**2)  # Use a constant initial guess
     else:
         x = start.copy()
     x = x / np.linalg.norm(x)
@@ -368,105 +368,62 @@ def ic0_preconditioner(A):
 def analytical_laplacian_eigenvalue(p, q, N):
     """
     Compute the eigenvalue λ_{p,q} of the 2D Laplacian with Dirichlet boundary conditions.
-
-    Parameters:
-        p, q : int
-            Mode indices (1-based, from 1 to N)
-        N : int
-            Grid size
-
-    Returns:
-        float
-            Eigenvalue λ_{p,q}
     """
     h = 1.0 / (N + 1)
     return -(1 / h**2) * (np.cos(p * np.pi * h) + np.cos(q * np.pi * h) - 2)
 
-def solve_schrodinger(N):
-    # N = 64
-    # u = np.arange(N * N).reshape(N, N)
+def solve_schrodinger(N = 64, sigma = 0, potential=harmonic_potential, solver="cg", precond=None, omega=1.8):
+    print(f"Solving Schrödinger equation with N={N}, sigma={sigma}, potential={potential.__name__}, solver={solver}, precond={precond if precond else 'None'}")
+
+
     u = np.ones((N, N))  # Using a simple constant function for demonstration
-    # print("u (2D grid):")
-    # print(u)
+
 
     u_flat = u.reshape(N * N)
-    potential = lambda x,y: 0*x*y #lambda x, y: double_well_potential(x,y)
-    # potential = harmonic_potential  # Change to desired potential function
-    sigma = 0
-    
-    # A = sparse_system_matrix(N, lambda x, y: 0*x*y)
     A = sparse_system_matrix(N, potential)
     L, U, D = split_matrix(A)
 
+    if precond == "SSOR":
+        preconditioner = ssor_preconditioner(L, D, U, omega=1.8)
+    elif precond == "Jacobi":
+        preconditioner = jacobi_preconditioner(A)
+    elif precond == "SGS":
+        preconditioner = sgs_preconditioner(L, U, D)
+    elif precond == "IC0":
+        preconditioner = ic0_preconditioner(A)
+    elif precond == "None":
+        preconditioner = None
+    else:
+        raise ValueError(f"Unknown preconditioner: {precond}")
 
-    omega = 1.8
-    # start_time = time.time()
-    # v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, ic0_preconditioner(A))
-    # elapsed_time = time.time() - start_time
-    # print(f"Time for shifted_inverse_power_method with IC(0) preconditioner: {elapsed_time:.4f} seconds")
-    # # SSOR preconditioner
-    # start_time = time.time()
-    # v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, ssor_preconditioner(L, D, U, omega))
-    # elapsed_time = time.time() - start_time
-    # print(f"Time for shifted_inverse_power_method with SSOR preconditioner: {elapsed_time:.4f} seconds")
-
-    # # SGS preconditioner
-    # start_time = time.time()
-    # v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, sgs_preconditioner(L, U, D))
-    # elapsed_time = time.time() - start_time
-    # print(f"Time for shifted_inverse_power_method with SGS preconditioner: {elapsed_time:.4f} seconds")
-
-    # # Jacobi preconditioner
-    # start_time = time.time()
-    # v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, jacobi_preconditioner(A))
-    # elapsed_time = time.time() - start_time
-    # print(f"Time for shifted_inverse_power_method with Jacobi preconditioner: {elapsed_time:.4f} seconds")
-
-    # No preconditioner (plain CG)
-    # start_time = time.time()
-    # open("cg_residuals.txt", "w").close()
-    # open("cg_iterations.txt", "w").close()
-    v, lambda_v = shifted_inverse_power_method(A, sigma, cg, None)
-    # elapsed_time = time.time() - start_time
-    # print(f"Time for shifted_inverse_power_method with no preconditioner (plain CG): {elapsed_time:.4f} seconds")
-    
-    # CG with scipy
-    # start_time = time.time()
-    # v, lambda_v = shifted_inverse_power_method(A, sigma, sp.linalg.cg, None)
-    # elapsed_time = time.time() - start_time
-    # print(f"Time for shifted_inverse_power_method with scipy CG: {elapsed_time:.4f} seconds")
-
-    # # GMRES restarted
-    # start_time = time.time()
-    # v, lambda_v = shifted_inverse_power_method(A, sigma, gmres_restarted, None)
-    # elapsed_time = time.time() - start_time
-    # print(f"Time for GMRES restarted: {elapsed_time:.4f} seconds")
+    if solver == "cg":
+        v, lambda_v = shifted_inverse_power_method(A, sigma, cg, preconditioner)
+    elif solver == "pcg":
+        if preconditioner is None:
+            raise ValueError("Preconditioner must be provided for PCG.")
+        v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, preconditioner)
+    elif solver == "gmres":
+        v, lambda_v = shifted_inverse_power_method(A, sigma, gmres_restarted, preconditioner)
+        print("No preconditioner for GMRES(m), using plain GMRES(m).")
+    else:
+        raise ValueError(f"Unknown solver: {solver}")
 
 
-    # print(f"\nEigenvalue lambda_v closest to sigma={sigma}:")
-    # print(lambda_v)
-    # print(f"Analytical eigenvalue with h={1/(N+1)}: {analytical_laplacian_eigenvalue(1, 1, N)}")
-    # print(f"difference: {lambda_v - analytical_laplacian_eigenvalue(1, 1, N)}")
-    # print(f"real difference: {np.abs(lambda_v - np.pi**2)}")
-
-    # # print analytical eigenvalues for some combinations of p and q
-    # for p in range(1, 10):
-    #     for q in range(1, 10):
-    #         analytical_eigenvalue = analytical_laplacian_eigenvalue(p, q, N)
-    #         print(f"Analytical eigenvalue for p={p}, q={q}: {analytical_eigenvalue}")
+    print(f"\nEigenvalue lambda_v closest to sigma={sigma}:")
+    print(lambda_v)
 
     # Plot the eigenvector over the grid
-    # h = 1.0 / (N + 1)
-    # x_list = np.linspace(h, 1 - h, N)
-    # X, Y = np.meshgrid(x_list, x_list, indexing='ij')
-    # plt.figure(figsize=(8, 6))
-    # plt.pcolormesh(X, Y, v.reshape(N, N), shading='auto', cmap='viridis')
-    # plt.colorbar(label='Eigenvector value')
-    # plt.title(f'Eigenvector closest to sigma={sigma}')
-    # plt.xlabel('x')
-    # plt.ylabel('y')
-    # plt.show()
-    # Plot the potential
+    h = 1.0 / (N + 1)
+    x_list = np.linspace(h, 1 - h, N)
+    X, Y = np.meshgrid(x_list, x_list, indexing='ij')
+    plt.figure(figsize=(8, 6))
+    plt.pcolormesh(X, Y, v.reshape(N, N), shading='auto', cmap='viridis')
+    plt.colorbar(label='Eigenvector value')
+    plt.title(f'Eigenvector closest to sigma={sigma}')
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.show()
+    # # Plot the potential
     # plt.figure(figsize=(8, 6)) 
     # plt.pcolormesh(X, Y, potential(X, Y).reshape(N, N), shading='auto', cmap='plasma')
     # plt.colorbar(label='Potential V(x, y)')
@@ -474,17 +431,7 @@ def solve_schrodinger(N):
     # plt.xlabel('x')
     # plt.ylabel('y')
     # plt.show()
-    # 3D surface plot of the eigenvector
 
-    # fig = plt.figure(figsize=(10, 8))
-    # ax = fig.add_subplot(111, projection='3d')
-    # surf = ax.plot_surface(X, Y, v.reshape(N, N), cmap='viridis', edgecolor='none')
-    # ax.set_title(f'3D Surface: Eigenvector closest to sigma={sigma}')
-    # ax.set_xlabel('x')
-    # ax.set_ylabel('y')
-    # ax.set_zlabel('Eigenvector value')
-    # fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10)
-    # plt.show()
 
 def optimal_strategy(N=128):
     # u = np.arange(N * N).reshape(N, N)
@@ -644,42 +591,16 @@ def plot_iterations(iters, solver_name="cg"):
     plt.savefig(os.path.join('plots', f'{solver_name}_iterations.png'))
     plt.show()
 
-def get_started():
-    """
-    Function to get started with the module.
-    """
-    N = 64
-    u = np.ones((N, N))
-    u_flat = u.reshape(N * N)
-
-    potential = harmonic_potential
-    sigma = 0
-    
-    # build matrix
-    A = sparse_system_matrix(N, potential)
-
-    # split matrix for preconditioning
-    L, U, D = split_matrix(A)
-
-    # call shifted inverse power method to calculate eigenvector and eigenvalue
-    v, lambda_v = shifted_inverse_power_method(A, sigma, cg, None)
-    
-    # Plot the eigenvector as a 2D color map
-    h = 1.0 / (N + 1)
-    x_list = np.linspace(h, 1 - h, N)
-    X, Y = np.meshgrid(x_list, x_list, indexing='ij')
-    plt.figure(figsize=(8, 6))
-    plt.pcolormesh(X, Y, v.reshape(N, N), shading='auto', cmap='viridis')
-    plt.colorbar(label='Eigenvector value')
-    plt.title(f'Eigenvector closest to sigma={sigma}')
-    plt.xlabel('x')
-    plt.ylabel('y')
-    plt.show()
-
 if __name__ == "__main__":
-    get_started()
-    # solve_schrodinger()
-    # optimal_strategy(128)
+    N = 64
+    sigma = 28
+    potential = harmonic_potential
+    solver = "cg" # "cg", "pcg" or "gmres"
+    precond = "None" # "None", "Jacobi", "SGS", "SSOR", "IC0"
+    omega = 1.8  # Only used if precond is "SSOR"
+
+    solve_schrodinger(N, sigma, potential, solver, precond, omega)
+    # optimal_strategy(N)
 
 
     # ----------------------------------
