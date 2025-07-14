@@ -2,10 +2,24 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy.sparse as sp
 import time
-from scipy.sparse.linalg import spilu
-from scipy.sparse.linalg import eigsh, eigs
+# from scipy.sparse.linalg import spilu
+# from scipy.sparse.linalg import eigsh, eigs
 import os
 
+# Define potentials
+def harmonic_potential(x, y):
+    """Harmonic potential V(x, y) = 0.5 * (x^2 + y^2) as lambda function."""
+    return (x - 0.5)**2 + (y - 0.5)**2
+
+def step_potential(x, y):
+    """Step potential V(x, y) = 1 if x > 0.5 and y > 0.5, else 0."""
+    return np.where((x > 0.5) & (y > 0.5), 2000, 0.0)
+
+def double_well_potential(x, y):
+    """Double well potential energy surface in 2D, centered at (0.5, 0.5), horizontal wells."""
+    return 500 * ((x - 0.5)**2 - 0.25)**2 + 1000*(y - 0.5)**2
+
+# Construct sparse matrices for the Schrödinger equation
 def sparse_laplacian_matrix(N):
     """Construct a sparse Laplacian matrix for a 2D grid (Dirichlet boundary)."""
     h = 1.0 / (N + 1)
@@ -29,19 +43,6 @@ def sparse_laplacian_matrix(N):
     laplacian = sp.diags(diagonals, offsets, shape=(size, size), format='csr')
     return laplacian / h**2
 
-def harmonic_potential(x, y):
-    """Harmonic potential V(x, y) = 0.5 * (x^2 + y^2) as lambda function."""
-    return (x - 0.5)**2 + (y - 0.5)**2
-
-def step_potential(x, y):
-    """Step potential V(x, y) = 1 if x > 0.5 and y > 0.5, else 0."""
-    return np.where((x > 0.5) & (y > 0.5), 2000, 0.0)
-
-def double_well_potential(x, y):
-    """Double well potential energy surface in 2D, centered at (0.5, 0.5), horizontal wells."""
-    return 500 * ((x - 0.5)**2 - 0.25)**2 + 1000*(y - 0.5)**2
-
-
 def sparse_potential_matrix(N, potential=harmonic_potential):
     """Construct a sparse potential matrix for the 2D grid."""
     h = 1.0 / (N + 1)
@@ -64,8 +65,8 @@ def shifted_inverse_power_method(A, sigma, solver, precond=None, tol=1e-8, max_i
     """
     N = int(np.sqrt(A.shape[0]))
     if start is None:
-        x = np.random.rand(N**2)  # Random initial guess
-        # x = np.ones(N**2)  # Use a constant initial guess
+        # x = np.random.rand(N**2)  # Random initial guess
+        x = np.ones(N**2)  # Use a constant initial guess
     else:
         x = start.copy()
     x = x / np.linalg.norm(x)
@@ -78,12 +79,16 @@ def shifted_inverse_power_method(A, sigma, solver, precond=None, tol=1e-8, max_i
         y = solver(shifted_matrix, x, precond)
         y = y / np.linalg.norm(y)
         if np.linalg.norm(x - y) < tol:
+            # print(f"Converged after {_} iterations with {solver.__name__}.")
+            # with open(f"data/ipm_{N}_{solver.__name__}_iterations.txt", "a") as f:
+            #     f.write(f"iterations: {_}\n")
             break
         x = y
 
     lambda_x = np.dot(x, A @ x) / np.dot(x, x)
     return x, lambda_x
 
+# Solvers and preconditioners
 def cg(A, b, precond=None, tol=1e-8, max_iter=1000):
     """Conjugate Gradient method to solve Ax = b for a linear operator A.
         operator: Function that applies the linear operator A to a vector.
@@ -110,12 +115,12 @@ def cg(A, b, precond=None, tol=1e-8, max_iter=1000):
         alpha_old = alpha_new
         iterations += 1
     # print(f"CG iterations: {iterations}")
-    N = int(np.sqrt(A.shape[0]))
-    with open(f"data/cg_{N}_residuals.txt", "a") as f:
-        f.write(f"res: {res}\n")
+    # N = int(np.sqrt(A.shape[0]))
+    # with open(f"data/cg_{N}_residuals.txt", "a") as f:
+    #     f.write(f"res: {res}\n")
     
-    with open(f"data/cg_{N}_iterations.txt", "a") as f:
-        f.write(f"iterations: {iterations}\n")
+    # with open(f"data/cg_{N}_iterations.txt", "a") as f:
+    #     f.write(f"iterations: {iterations}\n")
 
     # plt.plot(res)
     # plt.yscale('log')
@@ -158,7 +163,7 @@ def pcg(A, b, preconditioner, tol=1e-8, max_iter=1000):
     
     # with open(f"data/pcg_{preconditioner.__name__}_iterations.txt", "a") as f:
     #     f.write(f"iterations: {iterations}\n")
-    N = int(np.sqrt(A.shape[0]))
+    # N = int(np.sqrt(A.shape[0]))
     # if preconditioner.__name__ == 'ssor_precond':
     #     with open(f"data/pcg_{preconditioner.__name__}_{preconditioner.omega:.1f}_residuals.txt", "a") as f:
     #         f.write(f"res: {res}\n")
@@ -166,11 +171,11 @@ def pcg(A, b, preconditioner, tol=1e-8, max_iter=1000):
     #     with open(f"data/pcg_{preconditioner.__name__}_{preconditioner.omega:.1f}_iterations.txt", "a") as f:
     #         f.write(f"iterations: {iterations}\n")
     # else:
-    with open(f"data/pcg_{preconditioner.__name__}_{N}_residuals.txt", "a") as f:
-        f.write(f"res: {res}\n")
+    # with open(f"data/pcg_{preconditioner.__name__}_{N}_residuals.txt", "a") as f:
+    #     f.write(f"res: {res}\n")
 
-    with open(f"data/pcg_{preconditioner.__name__}_{N}_iterations.txt", "a") as f:
-        f.write(f"iterations: {iterations}\n")
+    # with open(f"data/pcg_{preconditioner.__name__}_{N}_iterations.txt", "a") as f:
+    #     f.write(f"iterations: {iterations}\n")
 
 
     # print(f"PCG iterations: {iterations}")
@@ -183,9 +188,6 @@ def pcg(A, b, preconditioner, tol=1e-8, max_iter=1000):
     # plt.show()
     # exit()
     return x
-
-import numpy as np
-from mpl_toolkits.mplot3d import Axes3D
 
 def gmres_restarted(A, b, preconditioner=None, tol=1e-8, max_iter=1000, restart=50):
     """
@@ -281,7 +283,6 @@ def gmres_restarted(A, b, preconditioner=None, tol=1e-8, max_iter=1000, restart=
 
     return x
 
-
 # Return A, L, U matrices for the sparse matrix A
 def split_matrix(A):
     """Split the sparse matrix A into its lower, upper, and diagonal parts with L and U having zero diagonals."""
@@ -300,29 +301,6 @@ def jacobi_preconditioner(A):
     def jacobi_precond(r):
         return r / D
     return jacobi_precond
-
-# def sgs_preconditioner(L, U, D):
-#     """Symmetric Gauss-Seidel preconditioner for the system matrix."""
-#     LD = (L + D).tocsr()
-#     UD = (U + D).tocsr()
-#     def preconditioner(r):
-#         z3 = sp.linalg.spsolve_triangular(LD, r, lower=True, unit_diagonal=False)
-#         z2 = D @ z3
-#         z = sp.linalg.spsolve_triangular(UD, z2, lower=False, unit_diagonal=False)
-#         return z
-#     return preconditioner
-
-# def ssor_preconditioner(L, D, U, omega=1.0):
-#     """Symmetric Successive Over-Relaxation (SSOR) preconditioner for the system matrix."""
-#     LD = (L + D / omega).tocsr()
-#     UD = (U + D / omega).tocsr()
-    
-#     def preconditioner(r):
-#         z3 = sp.linalg.spsolve_triangular(1/(2-omega)*LD, r, lower=True, unit_diagonal=False)
-#         z2 = (D/omega) @ z3
-#         z = sp.linalg.spsolve_triangular(UD, z2, lower=False, unit_diagonal=False)
-#         return z
-#     return preconditioner
 
 def sgs_preconditioner(L, U, D):
     """Symmetric Gauss-Seidel preconditioner for the system matrix."""
@@ -386,7 +364,7 @@ def ic0_preconditioner(A):
         return x
     return ic0_precond
 
-
+# functions to generate plots
 def analytical_laplacian_eigenvalue(p, q, N):
     """
     Compute the eigenvalue λ_{p,q} of the 2D Laplacian with Dirichlet boundary conditions.
@@ -404,8 +382,8 @@ def analytical_laplacian_eigenvalue(p, q, N):
     h = 1.0 / (N + 1)
     return -(1 / h**2) * (np.cos(p * np.pi * h) + np.cos(q * np.pi * h) - 2)
 
-def dimile_new():
-    N = 512
+def solve_schrodinger(N):
+    # N = 64
     # u = np.arange(N * N).reshape(N, N)
     u = np.ones((N, N))  # Using a simple constant function for demonstration
     # print("u (2D grid):")
@@ -421,7 +399,7 @@ def dimile_new():
     L, U, D = split_matrix(A)
 
 
-    # omega = 1.8
+    omega = 1.8
     # start_time = time.time()
     # v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, ic0_preconditioner(A))
     # elapsed_time = time.time() - start_time
@@ -445,12 +423,12 @@ def dimile_new():
     # print(f"Time for shifted_inverse_power_method with Jacobi preconditioner: {elapsed_time:.4f} seconds")
 
     # No preconditioner (plain CG)
-    start_time = time.time()
+    # start_time = time.time()
     # open("cg_residuals.txt", "w").close()
     # open("cg_iterations.txt", "w").close()
     v, lambda_v = shifted_inverse_power_method(A, sigma, cg, None)
-    elapsed_time = time.time() - start_time
-    print(f"Time for shifted_inverse_power_method with no preconditioner (plain CG): {elapsed_time:.4f} seconds")
+    # elapsed_time = time.time() - start_time
+    # print(f"Time for shifted_inverse_power_method with no preconditioner (plain CG): {elapsed_time:.4f} seconds")
     
     # CG with scipy
     # start_time = time.time()
@@ -465,11 +443,11 @@ def dimile_new():
     # print(f"Time for GMRES restarted: {elapsed_time:.4f} seconds")
 
 
-    print(f"\nEigenvalue lambda_v closest to sigma={sigma}:")
-    print(lambda_v)
-    print(f"Analytical eigenvalue with h={1/(N+1)}: {analytical_laplacian_eigenvalue(1, 1, N)}")
-    print(f"difference: {lambda_v - analytical_laplacian_eigenvalue(1, 1, N)}")
-    print(f"real difference: {np.abs(lambda_v - np.pi**2)}")
+    # print(f"\nEigenvalue lambda_v closest to sigma={sigma}:")
+    # print(lambda_v)
+    # print(f"Analytical eigenvalue with h={1/(N+1)}: {analytical_laplacian_eigenvalue(1, 1, N)}")
+    # print(f"difference: {lambda_v - analytical_laplacian_eigenvalue(1, 1, N)}")
+    # print(f"real difference: {np.abs(lambda_v - np.pi**2)}")
 
     # # print analytical eigenvalues for some combinations of p and q
     # for p in range(1, 10):
@@ -478,16 +456,16 @@ def dimile_new():
     #         print(f"Analytical eigenvalue for p={p}, q={q}: {analytical_eigenvalue}")
 
     # Plot the eigenvector over the grid
-    h = 1.0 / (N + 1)
-    x_list = np.linspace(h, 1 - h, N)
-    X, Y = np.meshgrid(x_list, x_list, indexing='ij')
-    plt.figure(figsize=(8, 6))
-    plt.pcolormesh(X, Y, v.reshape(N, N), shading='auto', cmap='viridis')
-    plt.colorbar(label='Eigenvector value')
-    plt.title(f'Eigenvector closest to sigma={sigma}')
-    plt.xlabel('x')
-    plt.ylabel('y')
-    plt.show()
+    # h = 1.0 / (N + 1)
+    # x_list = np.linspace(h, 1 - h, N)
+    # X, Y = np.meshgrid(x_list, x_list, indexing='ij')
+    # plt.figure(figsize=(8, 6))
+    # plt.pcolormesh(X, Y, v.reshape(N, N), shading='auto', cmap='viridis')
+    # plt.colorbar(label='Eigenvector value')
+    # plt.title(f'Eigenvector closest to sigma={sigma}')
+    # plt.xlabel('x')
+    # plt.ylabel('y')
+    # plt.show()
     # Plot the potential
     # plt.figure(figsize=(8, 6)) 
     # plt.pcolormesh(X, Y, potential(X, Y).reshape(N, N), shading='auto', cmap='plasma')
@@ -498,15 +476,15 @@ def dimile_new():
     # plt.show()
     # 3D surface plot of the eigenvector
 
-    fig = plt.figure(figsize=(10, 8))
-    ax = fig.add_subplot(111, projection='3d')
-    surf = ax.plot_surface(X, Y, v.reshape(N, N), cmap='viridis', edgecolor='none')
-    ax.set_title(f'3D Surface: Eigenvector closest to sigma={sigma}')
-    ax.set_xlabel('x')
-    ax.set_ylabel('y')
-    ax.set_zlabel('Eigenvector value')
-    fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10)
-    plt.show()
+    # fig = plt.figure(figsize=(10, 8))
+    # ax = fig.add_subplot(111, projection='3d')
+    # surf = ax.plot_surface(X, Y, v.reshape(N, N), cmap='viridis', edgecolor='none')
+    # ax.set_title(f'3D Surface: Eigenvector closest to sigma={sigma}')
+    # ax.set_xlabel('x')
+    # ax.set_ylabel('y')
+    # ax.set_zlabel('Eigenvector value')
+    # fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10)
+    # plt.show()
 
 def optimal_strategy(N=128):
     # u = np.arange(N * N).reshape(N, N)
@@ -585,8 +563,6 @@ def eigenvalue_convergence(N, sigma=0, p=1, q=1):
     real_difference = np.abs(lambda_v - continuous_value)
     return discrete_difference, real_difference, continuous_value
 
-
-
 def compute_residuals(N):
     u = np.ones((N, N))  
 
@@ -614,7 +590,6 @@ def compute_residuals(N):
     v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, ssor_preconditioner(L, D, U, 1.8))
     # for precond in preconditioner_list:
     #     v, lambda_v = shifted_inverse_power_method(A, sigma, pcg, precond)
-
 
 def read_residuals(filename="cg_residuals.txt"):
     """Read all residuals from a file and return them as a single concatenated list, also returning the first residual list."""
@@ -669,34 +644,73 @@ def plot_iterations(iters, solver_name="cg"):
     plt.savefig(os.path.join('plots', f'{solver_name}_iterations.png'))
     plt.show()
 
+def get_started():
+    """
+    Function to get started with the module.
+    """
+    N = 64
+    u = np.ones((N, N))
+    u_flat = u.reshape(N * N)
+
+    potential = harmonic_potential
+    sigma = 0
+    
+    # build matrix
+    A = sparse_system_matrix(N, potential)
+
+    # split matrix for preconditioning
+    L, U, D = split_matrix(A)
+
+    # call shifted inverse power method to calculate eigenvector and eigenvalue
+    v, lambda_v = shifted_inverse_power_method(A, sigma, cg, None)
+    
+    # Plot the eigenvector as a 2D color map
+    h = 1.0 / (N + 1)
+    x_list = np.linspace(h, 1 - h, N)
+    X, Y = np.meshgrid(x_list, x_list, indexing='ij')
+    plt.figure(figsize=(8, 6))
+    plt.pcolormesh(X, Y, v.reshape(N, N), shading='auto', cmap='viridis')
+    plt.colorbar(label='Eigenvector value')
+    plt.title(f'Eigenvector closest to sigma={sigma}')
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.show()
 
 if __name__ == "__main__":
-    # dimile_new()
+    get_started()
+    # solve_schrodinger()
     # optimal_strategy(128)
 
-    N_list = [4, 8, 16, 32, 64, 128, 256, 512, 1024]
-    # Plot eigenvalue convergence for each N
-    discrete_diffs = []
-    real_diffs = []
-    for N in N_list:
-        discrete_diff, real_diff, cont_value = eigenvalue_convergence(N, sigma=24, p=1, q=2)
-        discrete_diffs.append(discrete_diff)
-        real_diffs.append(real_diff)
-        print(f"N={N}, Discrete Difference: {discrete_diff}, Real Difference: {real_diff}")
 
-    plt.figure(figsize=(8, 6))
-    plt.plot(N_list, discrete_diffs, marker='o', label=r'$| \lambda_{1,1} - \lambda(\sigma = 24) |$')
-    plt.plot(N_list, real_diffs, marker='s', label=r'$| \frac{5}{2} \pi^2 - \lambda(\sigma = 24) |$')
-    plt.xlabel('Grid size N')
-    plt.ylabel('Eigenvalue Difference')
-    plt.title('Eigenvalue Convergence vs Grid Size')
-    plt.xscale('log')
-    plt.yscale('log')
-    plt.legend()
-    plt.grid(True)
-    plt.savefig(os.path.join('plots', 'eigenvalue_convergence_vs_N.png'))
-    plt.show()
-    exit()
+    # ----------------------------------
+    #
+    # EIGENVALUE CONVERGENCE FOR DIFFERENT N
+    #
+    # ----------------------------------
+
+    # N_list = [4, 8, 16, 32, 64, 128, 256, 512, 1024]
+    # # Plot eigenvalue convergence for each N
+    # discrete_diffs = []
+    # real_diffs = []
+    # for N in N_list:
+    #     discrete_diff, real_diff, cont_value = eigenvalue_convergence(N, sigma=24, p=1, q=2)
+    #     discrete_diffs.append(discrete_diff)
+    #     real_diffs.append(real_diff)
+    #     print(f"N={N}, Discrete Difference: {discrete_diff}, Real Difference: {real_diff}")
+
+    # plt.figure(figsize=(8, 6))
+    # plt.plot(N_list, discrete_diffs, marker='o', label=r'$| \lambda_{1,1} - \lambda(\sigma = 24) |$')
+    # plt.plot(N_list, real_diffs, marker='s', label=r'$| \frac{5}{2} \pi^2 - \lambda(\sigma = 24) |$')
+    # plt.xlabel('Grid size N')
+    # plt.ylabel('Eigenvalue Difference')
+    # plt.title('Eigenvalue Convergence vs Grid Size')
+    # plt.xscale('log')
+    # plt.yscale('log')
+    # plt.legend()
+    # plt.grid(True)
+    # plt.savefig(os.path.join('plots', 'eigenvalue_convergence_vs_N.png'))
+    # plt.show()
+    # exit()
     # first_res, res = read_residuals()
     # plot_residuals(first_res)
 
@@ -704,6 +718,12 @@ if __name__ == "__main__":
     # plot_iterations(iters)
     # Delete all .txt files in the data folder
     
+
+    # ----------------------------------
+    #
+    # CALCULATE RESIDUALS AND ITERATIONS FOR PLOTTING
+    #
+    # ----------------------------------
 
     # N = 128
     # CALCULATE = True  # Set to False to skip calculations and only plot results
@@ -717,41 +737,73 @@ if __name__ == "__main__":
 
     #     compute_residuals(N)
     
-    N_list = [16, 32, 64, 128, 256]
+    # data_folder = "data"
+    # if os.path.exists(data_folder):
+    #     for fname in os.listdir(data_folder):
+    #         if fname.startswith("ipm"):
+    #             os.remove(os.path.join(data_folder, fname))
+   
+    # N_list = [4, 8, 16, 32, 64, 128, 256]
     # for N in N_list:
-    #     compute_residuals(N)
+    #     solve_schrodinger(N)
+
+
+    # ----------------------------------
+    #
+    # PLOT IPM ITERATIONS VS N
+    #
+    # ----------------------------------
+    # solvers = ['cg']
+    # plt.figure(figsize=(8, 6))
+    # for solver in solvers:
+    #     ipm_iters = []
+    #     for N in N_list:
+    #         filename = f"data/ipm_{N}_{solver}_iterations.txt"
+    #         if os.path.exists(filename):
+    #             iters, _ = read_iterations(filename)
+    #             ipm_iters.append(iters)
+    #     plt.plot(N_list, ipm_iters, label=f'{solver.upper()} Iterations')
+    
+    # # plt.plot(N_list, ipm_iters, marker='o', label='IPM Iterations')
+    # plt.xlabel('Grid size N')
+    # plt.ylabel('IPM Iteration Count')
+    # plt.title('IPM Iterations vs Grid Size N')
+    # plt.grid(True)
+    # plt.legend()
+    # plt.savefig(os.path.join('plots', 'ipm_iterations_vs_N.png'))
+    # plt.show()
 
     # ----------------------------------
     #
     # PLOT ITERATIONS OVER N
     #
     # ----------------------------------
-    cg_first_iters = []
-    ssor_first_iters = []
-    for N in N_list:
-        filename = f"data/cg_{N}_iterations.txt"
-        if os.path.exists(filename):
-            first_iters, _ = read_iterations(filename)
-            if first_iters is not None:
-                cg_first_iters.append(first_iters)
+    # cg_first_iters = []
+    # ssor_first_iters = []
+    # for N in N_list:
+    #     filename = f"data/cg_{N}_iterations.txt"
+    #     if os.path.exists(filename):
+    #         first_iters, _ = read_iterations(filename)
+    #         if first_iters is not None:
+    #             cg_first_iters.append(first_iters)
         
-        filename = f"data/pcg_ssor_precond_{N}_iterations.txt"
-        if os.path.exists(filename):
-            first_iters, _ = read_iterations(filename)
-            if first_iters is not None:
-                ssor_first_iters.append(first_iters)
+    #     filename = f"data/pcg_ssor_precond_{N}_iterations.txt"
+    #     if os.path.exists(filename):
+    #         first_iters, _ = read_iterations(filename)
+    #         if first_iters is not None:
+    #             ssor_first_iters.append(first_iters)
  
-    plt.figure(figsize=(8, 6))
-    plt.tick_params(axis='both', which='major', labelsize=16)
-    plt.xlabel('Grid size N', fontsize=18)
-    plt.ylabel('First CG Iteration Count', fontsize=18)
-    plt.title('CG Iterations vs Grid Size', fontsize=20)    
-    plt.plot(N_list, cg_first_iters, marker='o', label='CG')
-    plt.plot(N_list, ssor_first_iters, marker='o', label='SSOR PCG (omega=1.8)')
-    plt.legend(fontsize=16)
-    plt.grid(True)
-    plt.savefig(os.path.join('plots', 'cg_iterations_vs_N.png'))
-    plt.show()
+    # plt.figure(figsize=(8, 6))
+    # plt.tick_params(axis='both', which='major', labelsize=16)
+    # plt.xlabel('Grid size N', fontsize=18)
+    # plt.ylabel('First CG Iteration Count', fontsize=18)
+    # plt.title('CG Iterations vs Grid Size', fontsize=20)    
+    # plt.plot(N_list, cg_first_iters, marker='o', label='CG')
+    # plt.plot(N_list, ssor_first_iters, marker='o', label='SSOR PCG (omega=1.8)')
+    # plt.legend(fontsize=16)
+    # plt.grid(True)
+    # plt.savefig(os.path.join('plots', 'cg_iterations_vs_N.png'))
+    # plt.show()
 
     # ----------------------------------
     #
